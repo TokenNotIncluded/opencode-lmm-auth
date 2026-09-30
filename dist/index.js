@@ -118,7 +118,7 @@ const LmmOAuthPlugin = async ({ client }, options) => {
                     fetch: async (input, init) => {
                         // Validate destination before any credential-refresh side effect.
                         const target = new URL(input instanceof Request ? input.url : input.toString());
-                        requireValue(target.origin === http.issuer && ['/v1/chat/completions', '/v1/responses', '/v1/messages'].includes(target.pathname) && !target.search && !target.hash, 'LMM refuses this request destination.');
+                        requireValue(target.origin === http.issuer && !target.username && !target.password && ['/v1/chat/completions', '/v1/responses', '/v1/messages'].includes(target.pathname) && !target.search && !target.hash, 'LMM refuses this request destination.');
                         const current = await fresh();
                         const request = await prepareRelay(input, init, http.issuer, admitted.routes, current.access);
                         const allowed = unpack(current, http.issuer).scope.split(' ');

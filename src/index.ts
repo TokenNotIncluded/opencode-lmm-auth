@@ -86,7 +86,7 @@ const LmmOAuthPlugin: Plugin = async ({client}, options) => {
             requireValue(typeof client?.auth?.set === 'function','This OpenCode host lacks client.auth.set; update the host to persist OAuth refresh credentials.');
             const rotated = await oauth.refresh(auth);
             // Never invoke with a rotated token until host persistence succeeds.
-          const saved = await client.auth.set({path: {id: 'lmm'}, body: rotated, throwOnError: true});
+            const saved = await client.auth.set({path: {id: 'lmm'}, body: rotated, throwOnError: true});
             requireValue(saved.data === true, 'LMM could not save refreshed credentials. Connect again.');
             return rotated;
           })();
@@ -101,7 +101,7 @@ const LmmOAuthPlugin: Plugin = async ({client}, options) => {
           fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
             // Validate destination before any credential-refresh side effect.
             const target = new URL(input instanceof Request ? input.url : input.toString());
-            requireValue(target.origin === http.issuer && ['/v1/chat/completions', '/v1/responses', '/v1/messages'].includes(target.pathname) && !target.search && !target.hash, 'LMM refuses this request destination.');
+            requireValue(target.origin === http.issuer && !target.username && !target.password && ['/v1/chat/completions', '/v1/responses', '/v1/messages'].includes(target.pathname) && !target.search && !target.hash, 'LMM refuses this request destination.');
             const current = await fresh();
             const request = await prepareRelay(input, init, http.issuer, admitted.routes, current.access);
             const allowed = unpack(current, http.issuer).scope.split(' ');
