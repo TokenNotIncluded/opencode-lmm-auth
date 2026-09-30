@@ -1,0 +1,43 @@
+{
+  "name": "@tokennotincluded/opencode-lmm-auth",
+  "version": "0.1.0",
+  "description": "LMM OAuth provider for OpenCode 1.18.34",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "dist",
+    "scripts"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "1.18.34"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.18.34",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "pack:check": "npm pack --dry-run --ignore-scripts",
+    "test:host": "node scripts/test-host.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "test:integration": "node scripts/test-integration.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TokenNotIncluded/opencode-lmm-auth.git"
+  },
+  "homepage": "https://github.com/TokenNotIncluded/opencode-lmm-auth#readme"
+}
