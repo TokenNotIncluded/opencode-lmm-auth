@@ -12,7 +12,9 @@ import { builtinProfiles } from './metadata.ts';
 
 const LmmOAuthPlugin: Plugin = async ({client}, options) => {
   const http = new LmmHttp({issuer: typeof options?.issuer === 'string' ? options.issuer : undefined});
-  const oauth = new OAuthSession(http, new RefreshJournal(join(homedir(), '.local', 'state', 'opencode-lmm-auth', 'refresh')));
+  const stateHome = process.env.XDG_STATE_HOME;
+  const stateDirectory = stateHome && isAbsolute(stateHome) ? stateHome : join(homedir(), '.local', 'state');
+  const oauth = new OAuthSession(http, new RefreshJournal(join(stateDirectory, 'opencode-lmm-auth', 'refresh')));
   const profiles = new Set<string>();
   let profileModels: any = {};
   const readHostAuth = async (): Promise<OAuth | undefined> => {
@@ -48,8 +50,8 @@ const LmmOAuthPlugin: Plugin = async ({client}, options) => {
         unpack(stored,http.issuer);
         if (stored.expires <= Date.now() + 30_000) {
           requireValue(process.env.OPENCODE_AUTH_CONTENT === undefined,'The read-only OPENCODE_AUTH_CONTENT credential expired. Update it or remove it and reconnect.');
-          const rotated = await oauth.refresh(stored);
           requireValue(typeof client?.auth?.set === 'function','This OpenCode host lacks client.auth.set; update the host to persist OAuth refresh credentials.');
+          const rotated = await oauth.refresh(stored);
           const saved = await client.auth.set({path:{id:'lmm'},body:rotated,throwOnError:true});
           requireValue(saved.data === true,'LMM could not save refreshed credentials. Connect again.');
           stored = rotated;
@@ -81,9 +83,9 @@ const LmmOAuthPlugin: Plugin = async ({client}, options) => {
           if (auth.expires > Date.now() + 30_000) return auth;
           requireValue(process.env.OPENCODE_AUTH_CONTENT === undefined,'The read-only OPENCODE_AUTH_CONTENT credential expired. Update it or remove it and reconnect.');
           pendingRefresh ??= (async () => {
+            requireValue(typeof client?.auth?.set === 'function','This OpenCode host lacks client.auth.set; update the host to persist OAuth refresh credentials.');
             const rotated = await oauth.refresh(auth);
             // Never invoke with a rotated token until host persistence succeeds.
-            requireValue(typeof client?.auth?.set === 'function','This OpenCode host lacks client.auth.set; update the host to persist OAuth refresh credentials.');
           const saved = await client.auth.set({path: {id: 'lmm'}, body: rotated, throwOnError: true});
             requireValue(saved.data === true, 'LMM could not save refreshed credentials. Connect again.');
             return rotated;
