@@ -69,13 +69,14 @@ test('config publishes only authenticated synthetic catalog models with per-mode
   await writeFile(join(dir,'opencode','auth.json'),JSON.stringify({lmm:auth}));
   globalThis.fetch = async () => json({schema_version:1,resource:issuer+'/api/oauth2',models:[{...item(upstream),apis:['openai-responses']},item('unverified-model')]});
   const hooks = await LmmPlugin(context);
-  const config:Config = {provider:{lmm:{models:{[upstream]:{limit:{context:8000,output:2000},tool_call:true,reasoning:false,attachment:false,temperature:true,options:{lmmApi:'openai-responses'}}}}}};
+  const config:Config = {provider:{lmm:{models:{[upstream]:{limit:{context:8000,output:2000},tool_call:true,reasoning:false,attachment:false,temperature:true,modalities:{input:['text','image','pdf'],output:['text']},options:{lmmApi:'openai-responses'}}}}}};
   await hooks.config!(config);
   const models = config.provider!.lmm.models!;
   assert.deepEqual(Object.keys(models),[id]);
   assert.equal(models[id].provider?.npm,'@ai-sdk/openai');
   assert.equal(models[id].id,id);
   assert.equal(models[id].cost?.input,1);
+  assert.deepEqual(models[id].modalities,{input:['text','image','pdf'],output:['text']});
  } finally {
   if(oldData===undefined) delete process.env.XDG_DATA_HOME; else process.env.XDG_DATA_HOME=oldData;
   globalThis.fetch=oldFetch;

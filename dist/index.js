@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { LmmHttp } from "./http.js";
 import { OAuthSession, unpack } from "./oauth.js";
 import { RefreshJournal } from "./refresh-journal.js";
@@ -13,8 +13,19 @@ const LmmOAuthPlugin = async ({ client }, options) => {
     const profiles = new Set();
     let profileModels = {};
     const readHostAuth = async () => {
+        const inline = process.env.OPENCODE_AUTH_CONTENT;
+        if (inline !== undefined) {
+            try {
+                return JSON.parse(inline).lmm;
+            }
+            catch {
+                throw new Error('Invalid OPENCODE_AUTH_CONTENT. Update the native OpenCode credential configuration.');
+            }
+        }
+        const data = process.env.XDG_DATA_HOME;
+        const directory = data && isAbsolute(data) ? data : join(homedir(), '.local', 'share');
         try {
-            return JSON.parse(await readFile(join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'opencode', 'auth.json'), 'utf8')).lmm;
+            return JSON.parse(await readFile(join(directory, 'opencode', 'auth.json'), 'utf8')).lmm;
         }
         catch (error) {
             if (error.code === 'ENOENT')
@@ -40,14 +51,16 @@ const LmmOAuthPlugin = async ({ client }, options) => {
             profileModels = Object.fromEntries(Object.entries(provider.models).map(([id, p]) => [id, {
                     id, providerID: 'lmm', name: id, status: 'active', headers: {},
                     api: { id, url: `${http.issuer}/v1`, npm: provider.npm }, cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-                    options: p.options ?? {}, limit: p.limit, capabilities: { toolcall: p.tool_call, reasoning: p.reasoning, attachment: p.attachment, temperature: p.temperature, input: { text: true, audio: false, image: false, video: false, pdf: false }, output: { text: true, audio: false, image: false, video: false, pdf: false } }
+                    options: p.options ?? {}, limit: p.limit, capabilities: { toolcall: p.tool_call, reasoning: p.reasoning, attachment: p.attachment, temperature: p.temperature, input: Object.fromEntries(['text', 'audio', 'image', 'video', 'pdf'].map(k => [k, p.modalities?.input?.includes(k) ?? k === 'text'])), output: Object.fromEntries(['text', 'audio', 'image', 'video', 'pdf'].map(k => [k, p.modalities?.output?.includes(k) ?? k === 'text'])) }
                 }]));
             let stored = await readHostAuth();
             provider.models = {};
             if (stored?.type === 'oauth') {
                 unpack(stored, http.issuer);
                 if (stored.expires <= Date.now() + 30_000) {
+                    requireValue(process.env.OPENCODE_AUTH_CONTENT === undefined, 'The read-only OPENCODE_AUTH_CONTENT credential expired. Update it or remove it and reconnect.');
                     const rotated = await oauth.refresh(stored);
+                    requireValue(typeof client?.auth?.set === 'function', 'This OpenCode host lacks client.auth.set; update the host to persist OAuth refresh credentials.');
                     const saved = await client.auth.set({ path: { id: 'lmm' }, body: rotated, throwOnError: true });
                     requireValue(saved.data === true, 'LMM could not save refreshed credentials. Connect again.');
                     stored = rotated;
@@ -58,6 +71,7 @@ const LmmOAuthPlugin = async ({ client }, options) => {
                 provider.models = Object.fromEntries(Object.entries(admitted.models).map(([id, m]) => [id, {
                         id, name: m.name, provider: { npm: m.api.npm, api: `${http.issuer}/v1` }, limit: m.limit, tool_call: m.capabilities.toolcall,
                         reasoning: m.capabilities.reasoning, attachment: m.capabilities.attachment, temperature: m.capabilities.temperature,
+                        modalities: { input: Object.entries(m.capabilities.input).filter(([, yes]) => yes).map(([key]) => key), output: Object.entries(m.capabilities.output).filter(([, yes]) => yes).map(([key]) => key) },
                         options: m.options, cost: { input: m.cost.input, output: m.cost.output, cache_read: m.cost.cache.read, cache_write: m.cost.cache.write }
                     }]));
             }
@@ -77,9 +91,11 @@ const LmmOAuthPlugin = async ({ client }, options) => {
                     unpack(auth, http.issuer);
                     if (auth.expires > Date.now() + 30_000)
                         return auth;
+                    requireValue(process.env.OPENCODE_AUTH_CONTENT === undefined, 'The read-only OPENCODE_AUTH_CONTENT credential expired. Update it or remove it and reconnect.');
                     pendingRefresh ??= (async () => {
                         const rotated = await oauth.refresh(auth);
                         // Never invoke with a rotated token until host persistence succeeds.
+                        requireValue(typeof client?.auth?.set === 'function', 'This OpenCode host lacks client.auth.set; update the host to persist OAuth refresh credentials.');
                         const saved = await client.auth.set({ path: { id: 'lmm' }, body: rotated, throwOnError: true });
                         requireValue(saved.data === true, 'LMM could not save refreshed credentials. Connect again.');
                         return rotated;

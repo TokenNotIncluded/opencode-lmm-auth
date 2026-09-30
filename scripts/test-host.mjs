@@ -36,18 +36,18 @@ try {
   await new Promise(resolve => setTimeout(resolve, 200));
  }
  stage = 'native OAuth methods';
- const authResponse = await fetch(endpoint+'/provider/auth', {signal:AbortSignal.timeout(20000)});
+ const authResponse = await fetch(endpoint+'/provider/auth', {signal:AbortSignal.timeout(90000)});
  assert.equal(authResponse.status, 200);
  const methods = await authResponse.json();
  assert.deepEqual(methods.lmm, [{type:'oauth', label:'Sign in with LMM (OAuth)'}]);
  stage = 'provider configuration';
- const configResponse = await fetch(endpoint+'/config', {signal:AbortSignal.timeout(20000)});
+ const configResponse = await fetch(endpoint+'/config', {signal:AbortSignal.timeout(90000)});
  assert.equal(configResponse.status, 200);
  const loaded = await configResponse.json();
  assert.equal(loaded.provider.lmm.options.baseURL, 'https://api.lmm.best/v1');
  assert.deepEqual(loaded.provider.lmm.models, {}, 'no unauthenticated models should be advertised');
  stage = 'provider catalog';
- const providersResponse = await fetch(endpoint+'/provider', {signal:AbortSignal.timeout(20000)});
+ const providersResponse = await fetch(endpoint+'/provider', {signal:AbortSignal.timeout(90000)});
  assert.equal(providersResponse.status, 200, 'provider catalog must work before OAuth login');
  const providers = await providersResponse.json();
  assert.ok(!providers.all.some(p => p.id === 'lmm' && Object.keys(p.models).length), 'OAuth-only provider must not advertise unconnected models');

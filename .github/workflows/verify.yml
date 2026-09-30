@@ -5,6 +5,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        opencode: [1.18.34, latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -15,7 +16,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build && git diff --exit-code -- dist
       - run: npm run typecheck && npm test && npm run pack:check
-      - run: npm install --prefix "${{ runner.temp }}/host" opencode-ai@1.18.34
+      - run: npm install --prefix "${{ runner.temp }}/host" opencode-ai@${{ matrix.opencode }}
       - run: npm run test:host && npm run test:integration
         env:
           OPENCODE_BIN: ${{ runner.temp }}/host/node_modules/opencode-ai/bin/opencode.exe

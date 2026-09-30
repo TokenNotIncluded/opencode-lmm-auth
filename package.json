@@ -1,7 +1,7 @@
 {
   "name": "@tokennotincluded/opencode-lmm-auth",
   "version": "0.1.0",
-  "description": "LMM OAuth provider for OpenCode 1.18.34",
+  "description": "LMM OAuth provider for OpenCode",
   "type": "module",
   "license": "AGPL-3.0-only",
   "exports": {
@@ -19,7 +19,7 @@
     "node": ">=22.19.0"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": "1.18.34"
+    "@opencode-ai/plugin": ">=1.18.34"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "1.18.34",

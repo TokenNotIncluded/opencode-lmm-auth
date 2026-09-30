@@ -1,6 +1,6 @@
 # OpenCode 的 LMM OAuth 插件
 
-面向 OpenCode **1.18.34**，不支持 OpenCode 2。插件是独立 Git 仓库，已包含 `dist/index.js`，无需 npm 发布。
+最低插件 API 为 OpenCode **1.18.34**，这是本地已验证基线版本。CI 同时验证基线和 npm 最新稳定版，不人为拒绝更新版本。插件是独立 Git 仓库，已包含 `dist/index.js`，无需 npm 发布。
 
 ## 安装与登录
 

@@ -1,8 +1,8 @@
 # LMM OAuth for OpenCode
 
-An independently versioned OpenCode OAuth plugin. Targets the
-OpenCode **1.18.34** plugin API (`@opencode-ai/plugin` 1.18.34). OpenCode 2's plugin
-API is different and is not supported. [中文](README.zh-CN.md).
+An independently versioned OpenCode OAuth plugin. Uses the OpenCode plugin API available since **1.18.34**, the last locally
+verified version. Baseline and current stable npm versions run in CI. Newer
+versions are accepted; an actually missing runtime API produces a specific error. [中文](README.zh-CN.md).
 
 Sign in to [LMM](https://api.lmm.best) through OpenCode's native OAuth menu; no API
 key needs to be copied. The provider supports catalog-advertised OpenAI chat,
