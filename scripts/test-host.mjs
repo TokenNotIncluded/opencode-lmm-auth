@@ -1,4 +1,4 @@
-import {spawn} from 'node:child_process';
+import {spawn,execFileSync} from 'node:child_process';
 import {mkdtemp, mkdir, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
@@ -56,6 +56,7 @@ try {
  throw new Error(`OpenCode host smoke failed at ${stage}: ${error instanceof Error ? error.message : "unknown error"}. Host logs: ${host ? hostOutput.slice(-8000) : "not started"}`);
 } finally {
  if (host && host.exitCode === null) {
+  if(process.platform==='win32'){try{execFileSync('taskkill',['/PID',String(host.pid),'/T','/F'],{stdio:'ignore'});}catch{}}
   host.kill('SIGTERM');
   await Promise.race([new Promise(resolve => host.once('exit',resolve)),new Promise(resolve => setTimeout(resolve,3000))]);
   if (host.exitCode === null) host.kill('SIGKILL');
