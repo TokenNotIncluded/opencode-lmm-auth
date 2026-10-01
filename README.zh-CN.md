@@ -10,7 +10,7 @@
 {"plugin":["file:///绝对路径/opencode-lmm-auth/dist/index.js"]}
 ```
 
-运行 `opencode auth login`，选择 LMM，再选择 OAuth 浏览器登录。也可以在 OpenCode 使用 `/connect`。浏览器与 OpenCode 必须运行在同一台机器上，三分钟内完成授权。登录后重启 OpenCode，从 `/models` 选择 LMM 模型。无需复制 API Key。
+运行 `opencode auth login --provider lmm`，选择 OAuth 浏览器登录。OpenCode 1.18.34 的 TUI `/connect` 不展示未授权且没有模型的自定义提供方，所以首次登录使用此 CLI 命令。浏览器与 OpenCode 必须运行在同一台机器上，三分钟内完成授权。登录后重启 OpenCode，从 `/models` 选择 LMM 模型。无需复制 API Key。
 
 服务端必须启用 OAuth CLI 功能并登记 `lmm-opencode` 客户端。插件不使用 Pi 的客户端 ID。
 
@@ -37,3 +37,5 @@ OPENCODE_BIN=/实际路径/opencode-1.18.34 npm run test:integration
 完整协议、限制与官方参考见 [English README](README.md)。许可证为 AGPL-3.0-only。
 
 Windows 刷新使用独占创建并 fsync 的标记文件，阻止并发和进程重启后的重复交换。突然断电时目录持久性弱于 Linux/macOS 的目录 fsync；不要删除标记重试。
+
+旧授权撤销、目录不可用或刷新被阻止时，仅停用 LMM 模型，保留 CLI 登录入口及其他提供方。重新运行上述登录命令后重启 OpenCode。

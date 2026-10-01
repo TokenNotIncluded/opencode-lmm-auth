@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { mkdir, open } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { LmmError } from "./protocol.js";
-const FIXED_FAILURE = 'LMM refresh could not be safely recorded. Use /connect.';
-const ALREADY_ATTEMPTED = 'LMM refresh was already attempted. Use /connect.';
+const FIXED_FAILURE = 'LMM refresh could not be safely recorded. Run opencode auth login --provider lmm.';
+const ALREADY_ATTEMPTED = 'LMM refresh was already attempted. Run opencode auth login --provider lmm.';
 export function refreshDigest(refresh) {
     return createHash('sha256').update(refresh, 'utf8').digest('hex');
 }

@@ -21,8 +21,7 @@ commit and merge its built entry into your `opencode.json`:
 }
 ```
 
-Run `opencode auth login`, select **LMM**, then **Sign in with LMM (OAuth)**,
-or use `/connect`. Complete browser sign-in and consent within three minutes.
+Run `opencode auth login --provider lmm`, then select **Sign in with LMM (OAuth)**. Complete browser sign-in and consent within three minutes.
 The browser and OpenCode server must run on the same machine for the loopback
 callback. Restart OpenCode after connecting, then select LMM under `/models`.
 No npm publication is required: this repository includes the built plugin.
@@ -41,7 +40,7 @@ and `options.lmmApi` (`openai-completions`, `openai-responses` or
 
 A trusted alternative issuer can be supplied with the plugin tuple
 `["file:///…/dist/index.js", {"issuer":"https://YOUR-ISSUER"}]`; it must register
-the same client. Issuer changes require a fresh login.
+the same client. Issuer changes require a fresh CLI login.
 
 ## Credentials and limitations
 
@@ -55,7 +54,7 @@ issuer/resource and granted scopes. It is still a secret; never paste or log it.
 The credential-free rotation journal is under
 `~/.local/state/opencode-lmm-auth/refresh/`. Do not delete its markers to retry a
 failed refresh. Concurrent processes cannot exchange the same refresh token.
-A lost response, crash or failed host save requires a fresh `/connect`.
+A lost response, crash or failed host save requires a fresh `opencode auth login --provider lmm`.
 
 Only static USD per-million-token prices with a complete `native_cost` are
 admitted. Unknown, dynamic, expression-based and request-based prices are
@@ -99,3 +98,5 @@ The standalone callback, HTTP and refresh-journal primitives were adapted from
 this project's AGPL Pi provider. This package retains AGPL-3.0-only; see LICENSE.
 
 Windows refresh uses an exclusive, fsynced marker file. Concurrency and process-crash replay are fenced; sudden-power-loss directory durability is weaker than the directory-fsync path on Linux/macOS. Never remove marker files to retry.
+
+OpenCode 1.18.34 does not list an unconnected model-less provider in its TUI `/connect` dialog. Use the native CLI login command above. Revoked or unavailable LMM credentials disable only LMM models, leaving login and other providers available.

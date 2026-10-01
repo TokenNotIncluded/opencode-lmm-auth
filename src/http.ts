@@ -58,7 +58,7 @@ export class LmmHttp {
         if (response.status === 401 || response.status === 403) {
           throw new LmmError(
             "unauthorized",
-            "LMM authorization is unavailable or was revoked. Use /connect; no API-key fallback is allowed.",
+            "LMM authorization is unavailable or was revoked. Run opencode auth login --provider lmm; no API-key fallback is allowed.",
           );
         }
         if (response.status === 429) {
