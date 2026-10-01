@@ -32,7 +32,7 @@ const LmmOAuthPlugin = async ({ client }, options) => {
         catch (error) {
             if (error.code === 'ENOENT')
                 return undefined;
-            throw error;
+            throw new Error('Cannot read valid native OpenCode credentials. Repair the native credential store and reconnect.');
         }
     };
     let pendingRefresh;

@@ -23,7 +23,10 @@ const LmmOAuthPlugin: Plugin = async ({client}, options) => {
     const data = process.env.XDG_DATA_HOME;
     const directory = data && isAbsolute(data) ? data : join(homedir(), '.local', 'share');
     try { return JSON.parse(await readFile(join(directory, 'opencode', 'auth.json'), 'utf8')).lmm; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined; throw error; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw new Error('Cannot read valid native OpenCode credentials. Repair the native credential store and reconnect.');
+    }
   };
   let pendingRefresh: Promise<OAuth> | undefined;
   return {
