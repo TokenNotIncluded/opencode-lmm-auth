@@ -12,12 +12,20 @@ refresh-token rotation and streaming/cancellation are supported.
 
 ## Install in Magpie
 
-Install the published package and sign in from Magpie's plugin provider:
+Install the package from npm, or use the tagged GitHub repository directly:
 
 ```sh
 magpie plugin add @tokennotincluded/opencode-lmm-auth
 magpie plugin login lmm
 magpie provider test lmm
+```
+
+The repository is tagged `magpie-plugin` and keeps the built entry at its root,
+so a GitHub install is also available when a local npm registry policy blocks
+the package:
+
+```sh
+magpie plugin add github:TokenNotIncluded/opencode-lmm-auth
 ```
 
 Magpie stores the OAuth grant in its private `plugin-auth.json`; no API key is

@@ -10,6 +10,13 @@ magpie plugin login lmm
 magpie provider test lmm
 ```
 
+仓库已经加上 `magpie-plugin` topic，根目录保留构建后的入口；如果 npm
+策略暂时阻止包安装，也可以直接使用 GitHub：
+
+```sh
+magpie plugin add github:TokenNotIncluded/opencode-lmm-auth
+```
+
 Magpie 将 OAuth 凭据保存在私有的 `plugin-auth.json`，无需复制 API Key。登录后，LMM 账号授权的目录会按账号刷新，模型以 `lmm/<模型>` 形式提供给各个 Agent。插件会保留每个模型的协议、上下文/输出限制、能力和目录价格。桌面端也可以在 Settings → Plugins 添加它。
 
 ## 在 OpenCode 中安装与登录
