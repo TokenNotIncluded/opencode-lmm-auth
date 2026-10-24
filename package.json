@@ -1,9 +1,23 @@
 {
   "name": "@tokennotincluded/opencode-lmm-auth",
-  "version": "0.1.0",
-  "description": "LMM OAuth provider for OpenCode",
+  "version": "0.1.1",
+  "description": "LMM OAuth provider plugin for OpenCode and Magpie",
   "type": "module",
+  "main": "./dist/index.js",
   "license": "AGPL-3.0-only",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "magpie",
+    "magpie-plugin",
+    "lmm",
+    "oauth",
+    "provider"
+  ],
+  "magpie": {
+    "icon": "https://api.lmm.best/favicon.ico",
+    "maxConcurrency": 4
+  },
   "exports": {
     ".": "./dist/index.js"
   },

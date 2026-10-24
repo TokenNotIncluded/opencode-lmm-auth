@@ -1,8 +1,18 @@
-# OpenCode 的 LMM OAuth 插件
+# OpenCode 与 Magpie 的 LMM OAuth 插件
 
-最低插件 API 为 OpenCode **1.18.34**，这是本地已验证基线版本。CI 同时验证基线和 npm 最新稳定版，不人为拒绝更新版本。插件是独立 Git 仓库，已包含 `dist/index.js`，无需 npm 发布。
+最低插件 API 为 OpenCode **1.18.34**，这是本地已验证基线版本。CI 同时验证基线和 npm 最新稳定版，不人为拒绝更新版本。插件是独立 Git 仓库，已包含可直接加载的 `dist/index.js`，同时支持 Magpie。
 
-## 安装与登录
+## 在 Magpie 中安装与登录
+
+```sh
+magpie plugin add @tokennotincluded/opencode-lmm-auth
+magpie plugin login lmm
+magpie provider test lmm
+```
+
+Magpie 将 OAuth 凭据保存在私有的 `plugin-auth.json`，无需复制 API Key。登录后，LMM 账号授权的目录会按账号刷新，模型以 `lmm/<模型>` 形式提供给各个 Agent。插件会保留每个模型的协议、上下文/输出限制、能力和目录价格。桌面端也可以在 Settings → Plugins 添加它。
+
+## 在 OpenCode 中安装与登录
 
 使用 LMM Scripts 的 OpenCode 安装配置脚本，或克隆本仓库后把下列配置合并到 `opencode.json`：
 
@@ -16,9 +26,9 @@
 
 ## 模型与安全
 
-内置 models.dev 的 135 个明确能力配置。仅展示授权目录中匹配的模型，价格和计费组来自 LMM；不猜未知模型能力或把未知价格显示为零。支持 OpenAI Chat、Responses 和 Anthropic Messages，每个模型选择对应 SDK，调用时恢复真实模型名并附带授权计费组。
+内置 models.dev 的 135 个明确能力配置。仅展示授权目录中匹配的模型，价格和计费组来自 LMM；不猜未知模型能力或把未知价格显示为零。支持 OpenAI Chat、Responses 和 Anthropic Messages，每个模型选择对应 SDK，调用时恢复真实模型名并附带授权计费组。Magpie 会在加载请求传输前调用按账号的模型目录钩子。
 
-PKCE、回调 state/issuer 校验、刷新轮换、重复刷新阻止、流式输出和取消均已实现。OpenCode 保存凭据，插件在配置阶段读取其原生 `$XDG_DATA_HOME/opencode/auth.json`（默认 `~/.local/share/opencode/auth.json`），没有第二份凭据文件。刷新标记只保存摘要，位于 `~/.local/state/opencode-lmm-auth/refresh`；不要删除标记后重试刷新。移除本地凭据不等于服务端撤销授权。
+PKCE、回调 state/issuer 校验、刷新轮换、重复刷新阻止、流式输出和取消均已实现。OpenCode 保存原生凭据，Magpie 保存账号范围的 `plugin-auth.json`，插件不再写第二份凭据。OpenCode 模式下插件读取 `$XDG_DATA_HOME/opencode/auth.json`（默认 `~/.local/share/opencode/auth.json`）；Magpie 模式下则由宿主传入当前账号。刷新标记只保存摘要，位于 `~/.local/state/opencode-lmm-auth/refresh`；不要删除标记后重试刷新。移除本地凭据不等于服务端撤销授权。
 
 ## 验证
 
@@ -30,6 +40,12 @@ npm run typecheck
 npm run pack:check
 OPENCODE_BIN=/实际路径/opencode-1.18.34 npm run test:host
 OPENCODE_BIN=/实际路径/opencode-1.18.34 npm run test:integration
+# Magpie 隔离目录加载检查
+sb=$(mktemp -d)
+env HOME="$sb" XDG_CONFIG_HOME="$sb/.config" XDG_CACHE_HOME="$sb/.cache" \
+  magpie plugin add @tokennotincluded/opencode-lmm-auth
+env HOME="$sb" XDG_CONFIG_HOME="$sb/.config" XDG_CACHE_HOME="$sb/.cache" \
+  magpie plugin --json
 ```
 
 真实宿主集成测试使用隔离的凭据目录与受信任的本地 TLS 服务，覆盖 PKCE 登录、回调、原生凭据保存、重启、授权目录、三种 SDK 和完整流式输出，同时核对真实模型名、授权组和凭据头。测试不会消费生产额度。生产浏览器登录及实际计费需要对应服务端版本部署后另行验收。

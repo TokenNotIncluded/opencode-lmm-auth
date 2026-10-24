@@ -1,6 +1,6 @@
-# LMM OAuth for OpenCode
+# LMM OAuth for OpenCode and Magpie
 
-An independently versioned OpenCode OAuth plugin. Uses the OpenCode plugin API available since **1.18.34**, the last locally
+An independently versioned OpenCode and Magpie OAuth provider plugin. It uses the OpenCode plugin API available since **1.18.34**, the last locally
 verified version. Baseline and current stable npm versions run in CI. Newer
 versions are accepted; an actually missing runtime API produces a specific error. [中文](README.zh-CN.md).
 
@@ -10,7 +10,23 @@ OpenAI Responses and Anthropic Messages protocols with explicit model/group
 routing. PKCE S256, issuer-bound discovery, state/issuer callback checks,
 refresh-token rotation and streaming/cancellation are supported.
 
-## Install
+## Install in Magpie
+
+Install the published package and sign in from Magpie's plugin provider:
+
+```sh
+magpie plugin add @tokennotincluded/opencode-lmm-auth
+magpie plugin login lmm
+magpie provider test lmm
+```
+
+Magpie stores the OAuth grant in its private `plugin-auth.json`; no API key is
+copied. After sign-in, the provider's account-scoped catalog is available to
+agents as `lmm/<model>`. Each model keeps the LMM catalog's protocol, limits,
+capabilities and configured price. The same package can be installed from
+Settings → Plugins.
+
+## Install in OpenCode
 
 Use the LMM Scripts OpenCode installer, or clone this repository at a reviewed
 commit and merge its built entry into your `opencode.json`:
@@ -24,7 +40,8 @@ commit and merge its built entry into your `opencode.json`:
 Run `opencode auth login --provider lmm`, then select **Sign in with LMM (OAuth)**. Complete browser sign-in and consent within three minutes.
 The browser and OpenCode server must run on the same machine for the loopback
 callback. Restart OpenCode after connecting, then select LMM under `/models`.
-No npm publication is required: this repository includes the built plugin.
+The package includes the built `dist/index.js`, so npm and GitHub installs do
+not run a build step. A local file install remains available for development.
 
 The API server must register public OAuth client `lmm-opencode` and enable its
 issuer, CLI feature flags and group allowlists. The Pi client cannot substitute
@@ -44,11 +61,13 @@ the same client. Issuer changes require a fresh CLI login.
 
 ## Credentials and limitations
 
-OpenCode owns the persisted OAuth access and refresh credentials. The plugin
-reads OpenCode 1.18.34's native `$XDG_DATA_HOME/opencode/auth.json` (default
-`~/.local/share/opencode/auth.json`) during configuration because this host
-passes a deep copy to auth.loader; loader model mutations cannot register models.
-It never writes a second credential file. The `refresh`
+OpenCode owns the persisted OAuth access and refresh credentials. Magpie owns
+its account-scoped `plugin-auth.json`; the plugin never writes a second
+credential file. For OpenCode, the plugin reads the native
+`$XDG_DATA_HOME/opencode/auth.json` (default `~/.local/share/opencode/auth.json`)
+during configuration because that host passes a deep copy to `auth.loader`;
+the provider model hook also keeps the package compatible with Magpie, which
+asks for each account's models before loading its request transport. The `refresh`
 field is a versioned JSON envelope containing the actual refresh token, trusted
 issuer/resource and granted scopes. It is still a secret; never paste or log it.
 The credential-free rotation journal is under
@@ -78,6 +97,12 @@ npm run build
 npm run pack:check
 OPENCODE_BIN=/path/to/opencode-1.18.34 npm run test:host
 OPENCODE_BIN=/path/to/opencode-1.18.34 npm run test:integration
+# Magpie loading check in an isolated home (no real credentials are touched):
+sb=$(mktemp -d)
+env HOME="$sb" XDG_CONFIG_HOME="$sb/.config" XDG_CACHE_HOME="$sb/.cache" \
+  magpie plugin add @tokennotincluded/opencode-lmm-auth
+env HOME="$sb" XDG_CONFIG_HOME="$sb/.config" XDG_CACHE_HOME="$sb/.cache" \
+  magpie plugin --json
 # From apps/api-go in the parent checkout:
 go test ./router -run 'TestOAuthOpenCode|TestOAuthHTTPDiscoveryAndDisabled|TestOAuthCLI' -count=1
 ```

@@ -1,4 +1,4 @@
-import type { Plugin } from '@opencode-ai/plugin';
+import type { Plugin, ProviderHookContext } from '@opencode-ai/plugin';
 import type { OAuth } from '@opencode-ai/sdk/v2';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -30,6 +30,56 @@ const LmmOAuthPlugin: Plugin = async ({client}, options) => {
   };
   let pendingRefresh: Promise<OAuth> | undefined;
   let unavailableAuth = false;
+
+  const toProviderModels = (models: Record<string, any>): Record<string, any> => Object.fromEntries(
+    Object.entries(models).map(([id, model]) => [id, {
+      id,
+      name: model.name,
+      provider: {npm: model.api.npm, api: `${http.issuer}/v1`},
+      limit: model.limit,
+      tool_call: model.capabilities.toolcall,
+      reasoning: model.capabilities.reasoning,
+      attachment: model.capabilities.attachment,
+      temperature: model.capabilities.temperature,
+      modalities: {
+        input: Object.entries(model.capabilities.input).filter(([, yes]) => yes).map(([key]) => key),
+        output: Object.entries(model.capabilities.output).filter(([, yes]) => yes).map(([key]) => key),
+      },
+      options: model.options,
+      cost: {
+        input: model.cost.input,
+        output: model.cost.output,
+        cache_read: model.cost.cache.read,
+        cache_write: model.cost.cache.write,
+      },
+    }]),
+  );
+
+  const loadCatalog = async (auth: OAuth, providerModels: Record<string, any>) => {
+    const envelope = unpack(auth, http.issuer);
+    const catalog = await http.bearer('/api/oauth2/catalog', auth.access);
+    return admitCatalog(catalog, {models: providerModels} as any, http.issuer, envelope.scope, profiles);
+  };
+
+  const refreshAndPersist = async (auth: OAuth): Promise<OAuth> => {
+    requireValue(process.env.OPENCODE_AUTH_CONTENT === undefined, 'The read-only OPENCODE_AUTH_CONTENT credential expired. Update it or remove it and reconnect.');
+    requireValue(typeof client?.auth?.set === 'function', 'This OpenCode host lacks client.auth.set; update the host to persist OAuth refresh credentials.');
+    const rotated = await oauth.refresh(auth);
+    // Never invoke with a rotated token until host persistence succeeds.
+    const saved = await client.auth.set({path: {id: 'lmm'}, body: rotated, throwOnError: true});
+    requireValue(saved.data === true, 'LMM could not save refreshed credentials. Connect again.');
+    return rotated;
+  };
+
+  const refreshForOpenCode = async (getAuth: () => Promise<OAuth | undefined>): Promise<OAuth> => {
+    const auth = await getAuth();
+    requireValue(auth && auth.type === 'oauth', 'LMM requires OAuth. Run opencode auth login --provider lmm.');
+    unpack(auth, http.issuer);
+    if (auth.expires > Date.now() + 30_000) return auth;
+    pendingRefresh ??= refreshAndPersist(auth);
+    try { return await pendingRefresh; } finally { pendingRefresh = undefined; }
+  };
+
   return {
     config: async config => {
       unavailableAuth = false;
@@ -62,15 +112,8 @@ const LmmOAuthPlugin: Plugin = async ({client}, options) => {
             requireValue(saved.data === true,'LMM could not save refreshed credentials. Connect again.');
             stored = rotated;
           }
-          const envelope = unpack(stored,http.issuer);
-          const catalog = await http.bearer('/api/oauth2/catalog',stored.access);
-          const admitted = admitCatalog(catalog,{models:profileModels} as any,http.issuer,envelope.scope,profiles);
-          provider.models = Object.fromEntries(Object.entries(admitted.models).map(([id,m]) => [id,{
-            id, name:m.name, provider:{npm:m.api.npm,api:`${http.issuer}/v1`}, limit:m.limit, tool_call:m.capabilities.toolcall,
-            reasoning:m.capabilities.reasoning,attachment:m.capabilities.attachment,temperature:m.capabilities.temperature,
-            modalities:{input:Object.entries(m.capabilities.input).filter(([,yes])=>yes).map(([key])=>key as 'text'),output:Object.entries(m.capabilities.output).filter(([,yes])=>yes).map(([key])=>key as 'text')},
-            options:m.options,cost:{input:m.cost.input,output:m.cost.output,cache_read:m.cost.cache.read,cache_write:m.cost.cache.write}
-          }]));
+          const admitted = await loadCatalog(stored, profileModels);
+          provider.models = toProviderModels(admitted.models);
         }
       } catch (error) {
         unavailableAuth = true;
@@ -81,34 +124,51 @@ const LmmOAuthPlugin: Plugin = async ({client}, options) => {
         console.warn(`${reason} Run opencode auth login --provider lmm to reconnect, then restart OpenCode.`);
       }
     },
+    provider: {
+      id: 'lmm',
+      // Magpie calls this hook before auth.loader and keeps its return value as
+      // the account's model list. OpenCode ignores the extra hook.
+      models: async (provider: any, input: ProviderHookContext = {}) => {
+        const auth = input.auth;
+        if (!auth || auth.type !== 'oauth') return provider.models ?? {};
+        try {
+          const fresh = auth.expires > Date.now() + 30_000 ? auth : await refreshAndPersist(auth);
+          const admitted = await loadCatalog(fresh, profileModels);
+          return toProviderModels(admitted.models);
+        } catch (error) {
+          if (error instanceof LmmError && error.code === 'unauthorized') {
+            throw Object.assign(error, {signIn: 'expired'});
+          }
+          throw error;
+        }
+      },
+    },
     auth: {
       provider: 'lmm',
       methods: [{type: 'oauth', label: 'Sign in with LMM (OAuth)', authorize: () => oauth.authorize()}],
+      refreshLead: 5 * 60 * 1000,
+      // Magpie renews each account before calling models, usage or fetch.
+      // OpenCode ignores this hook and uses the loader's fallback below.
+      refresh: async (auth: OAuth) => {
+        try {
+          const rotated = await oauth.refresh(auth);
+          return {access: rotated.access, refresh: rotated.refresh, expires: rotated.expires};
+        } catch (error) {
+          if (error instanceof LmmError && error.code === 'unauthorized') {
+            throw Object.assign(error, {signIn: 'expired'});
+          }
+          throw error;
+        }
+      },
       loader: async (getAuth, provider) => {
         const initial = await getAuth();
         if (unavailableAuth || !initial || initial.type !== 'oauth') {
           provider.models = {};
           return {apiKey: 'lmm-oauth-required', fetch: async () => { throw new Error('LMM requires OAuth. Run opencode auth login --provider lmm.'); }};
         }
-        const fresh = async (): Promise<OAuth> => {
-          const auth = await getAuth();
-          requireValue(auth && auth.type === 'oauth', 'LMM requires OAuth. Run opencode auth login --provider lmm.');
-          unpack(auth, http.issuer);
-          if (auth.expires > Date.now() + 30_000) return auth;
-          requireValue(process.env.OPENCODE_AUTH_CONTENT === undefined,'The read-only OPENCODE_AUTH_CONTENT credential expired. Update it or remove it and reconnect.');
-          pendingRefresh ??= (async () => {
-            requireValue(typeof client?.auth?.set === 'function','This OpenCode host lacks client.auth.set; update the host to persist OAuth refresh credentials.');
-            const rotated = await oauth.refresh(auth);
-            // Never invoke with a rotated token until host persistence succeeds.
-            const saved = await client.auth.set({path: {id: 'lmm'}, body: rotated, throwOnError: true});
-            requireValue(saved.data === true, 'LMM could not save refreshed credentials. Connect again.');
-            return rotated;
-          })();
-          try { return await pendingRefresh; } finally { pendingRefresh = undefined; }
-        };
+        const fresh = () => refreshForOpenCode(getAuth as () => Promise<OAuth | undefined>);
         const auth = await fresh();
-        const catalog = await http.bearer('/api/oauth2/catalog', auth.access);
-        const admitted = admitCatalog(catalog, {...provider,models:profileModels}, http.issuer, unpack(auth, http.issuer).scope, profiles);
+        const admitted = await loadCatalog(auth, profileModels);
         provider.models = admitted.models;
         return {
           apiKey: 'lmm-oauth', baseURL: `${http.issuer}/v1`,

@@ -50,11 +50,11 @@ export class OAuthSession {
     requireValue(resource.resource === this.http.resource && Array.isArray(resource.authorization_servers) && resource.authorization_servers.length === 1 && resource.authorization_servers[0] === this.http.issuer);
     const verifier = randomBytes(32).toString('base64url');
     const state = randomBytes(32).toString('base64url');
-    const callback = await listenCallback(this.http.issuer, state, signal, 'OpenCode');
+    const callback = await listenCallback(this.http.issuer, state, signal, 'the app');
     const url = new URL(`${this.http.resource}/authorize`);
     url.search = new URLSearchParams({client_id: CLIENT_ID, response_type: 'code', redirect_uri: callback.redirectUri, scope: APPLICATION_SCOPES.join(' '), resource: this.http.resource, code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', state}).toString();
     let used = false;
-    return { url: url.href, instructions: 'Sign in to LMM and approve access. Return to OpenCode. This login expires after 3 minutes.', method: 'auto' as const, callback: async () => {
+    return { url: url.href, instructions: 'Sign in to LMM and approve access. Return to the app that started sign-in. This login expires after 3 minutes.', method: 'auto' as const, callback: async () => {
       requireValue(!used, 'LMM login callback was already used.');
       used = true;
       try {

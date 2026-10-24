@@ -47,6 +47,44 @@ test('config allowlist gates authenticated loader and actual transport; no reque
  } finally { globalThis.fetch = originalFetch; }
 });
 
+test('Magpie provider hook lists the signed-in account catalog before loader runs', async () => {
+ const originalFetch = globalThis.fetch;
+ let catalogCalls = 0;
+ globalThis.fetch = async (input) => {
+  if (String(input) === issuer+'/api/oauth2/catalog') {
+   catalogCalls++;
+   return json({schema_version:1,resource:issuer+'/api/oauth2',models:[item(upstream),item('unverified-model')]});
+  }
+  throw new Error('unexpected provider hook request');
+ };
+ try {
+  const hooks = await LmmPlugin(context);
+  const config: Config = {provider:{lmm:{models:{[upstream]:{limit:{context:8000,output:2000},tool_call:true,reasoning:false,attachment:false,temperature:true,options:{lmmApi:'openai-completions'}}}}}};
+  await hooks.config!(config);
+  const auth = parseToken({token_type:'Bearer',access_token:'lmm_at_fixture',refresh_token:'lmm_rt_fixture',expires_in:3600,scope:`catalog:read balance:read usage:read models:invoke group:${group}`},issuer,Date.now());
+  const listed = await (hooks as any).provider.models(makeProvider(),{auth});
+  assert.deepEqual(Object.keys(listed),[id]);
+  assert.equal(listed[id].provider.npm,'@ai-sdk/openai-compatible');
+  assert.equal(listed[id].limit.context,8000);
+  assert.equal(catalogCalls,1);
+ } finally { globalThis.fetch = originalFetch; }
+});
+
+test('Magpie marks an account expired when its catalog authorization is refused', async () => {
+ const originalFetch = globalThis.fetch;
+ globalThis.fetch = async (input) => {
+  if (String(input) === issuer+'/api/oauth2/catalog') return new Response('denied',{status:401});
+  throw new Error('unexpected provider hook request');
+ };
+ try {
+  const hooks = await LmmPlugin(context);
+  const config: Config = {provider:{lmm:{models:{[upstream]:{limit:{context:8000,output:2000},tool_call:true,reasoning:false,attachment:false,temperature:true,options:{lmmApi:'openai-completions'}}}}}};
+  await hooks.config!(config);
+  const auth = parseToken({token_type:'Bearer',access_token:'lmm_at_fixture',refresh_token:'lmm_rt_fixture',expires_in:3600,scope:`catalog:read balance:read usage:read models:invoke group:${group}`},issuer,Date.now());
+  await assert.rejects((hooks as any).provider.models(makeProvider(),{auth}), (error: any) => error?.signIn === 'expired');
+ } finally { globalThis.fetch = originalFetch; }
+});
+
 test('unconnected loader yields no models and refuses API-key fallback',async () => {
  const hooks = await LmmPlugin(context);
  const provider = makeProvider();
