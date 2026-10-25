@@ -83,10 +83,15 @@ The credential-free rotation journal is under
 failed refresh. Concurrent processes cannot exchange the same refresh token.
 A lost response, crash or failed host save requires a fresh `opencode auth login --provider lmm`.
 
-Only static USD per-million-token prices with a complete `native_cost` are
-admitted. Unknown, dynamic, expression-based and request-based prices are
-excluded instead of shown as zero. Prices already include group/trust
-multipliers and are not locked quotes. Configure no API keys for this provider;
+Static USD per-million-token rows with a complete `native_cost` use the exact
+account-adjusted LMM rates. Dynamic and expression-based rows
+are also exposed when the bundled exact models.dev profile has a non-zero vendor
+reference cost (a host-provided exact cost may override it); their name and
+`lmmPricingBasis` option say **LMM variable billing**, and the reference cost is
+never presented as an LMM quote. Rows with unknown pricing or without a safe
+reference cost remain unavailable instead of being shown as free. Prices already
+include group/trust multipliers and are not locked quotes.
+Configure no API keys for this provider;
 the plugin strips alternate credential headers and refuses redirects, URL
 credentials, unsupported endpoints, unknown models and group substitutions.
 There is no credential fallback, cross-group retry, MCP or marketplace support.

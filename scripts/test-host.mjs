@@ -22,7 +22,7 @@ try {
   provider:{lmm:{name:'LMM', npm:'@ai-sdk/openai-compatible', models:{'verified-fixture':{limit:{context:8000,output:2000},tool_call:true,reasoning:false,attachment:false,temperature:true,options:{lmmApi:'openai-completions'}}}}},
  };
  await writeFile(join(directory,'config','opencode','opencode.json'), JSON.stringify(config));
- host = spawn(binary, ['serve','--print-logs','--log-level','DEBUG','--hostname','127.0.0.1','--port',String(port)], {cwd:directory,env:{...process.env,XDG_CONFIG_HOME:join(directory,'config'),XDG_DATA_HOME:join(directory,'data'),XDG_STATE_HOME:join(directory,'state'),XDG_CACHE_HOME:join(directory,'cache'),OPENCODE_DISABLE_DEFAULT_PLUGINS:'true'}});
+ host = spawn(binary, ['serve','--print-logs','--hostname','127.0.0.1','--port',String(port)], {cwd:directory,env:{...process.env,XDG_CONFIG_HOME:join(directory,'config'),XDG_DATA_HOME:join(directory,'data'),XDG_STATE_HOME:join(directory,'state'),XDG_CACHE_HOME:join(directory,'cache'),OPENCODE_DISABLE_DEFAULT_PLUGINS:'true'}});
  let output = '';
 
  host.stdout.on('data', chunk => {output += chunk; hostOutput += chunk;});

@@ -8,7 +8,8 @@ import {parseToken} from '../src/oauth.ts';
 const issuer = 'https://api.lmm.best';
 const group = 'ZGVmYXVsdA';
 const upstream = 'verified-model';
-const id = `lmm:${group}:${Buffer.from(upstream).toString('base64url')}`;
+const idFor = (name: string) => `lmm:${group}:${Buffer.from(name).toString('base64url')}`;
+const id = idFor(upstream);
 const modalities = {text:true, audio:false, image:false, video:false, pdf:false};
 const profile: Model = {id:upstream, providerID:'lmm', name:'Model', status:'active', headers:{}, api:{id:upstream,url:issuer+'/v1',npm:'@ai-sdk/openai-compatible'}, cost:{input:0,output:0,cache:{read:0,write:0}}, options:{lmmApi:'openai-completions'}, limit:{context:8000, output:2000}, capabilities:{toolcall:true, reasoning:false, attachment:false, temperature:true, input:modalities, output:modalities}};
 const makeProvider = (): Provider => ({id:'lmm',name:'LMM',source:'config',env:[],options:{},models:{[upstream]:structuredClone(profile),'unverified-model':{...structuredClone(profile),id:'unverified-model'}}});
@@ -67,6 +68,47 @@ test('Magpie provider hook lists the signed-in account catalog before loader run
   assert.equal(listed[id].provider.npm,'@ai-sdk/openai-compatible');
   assert.equal(listed[id].limit.context,8000);
   assert.equal(catalogCalls,1);
+ } finally { globalThis.fetch = originalFetch; }
+});
+
+test('Magpie provider hook exposes dynamic billing when the host supplies a reference cost', async () => {
+ const originalFetch = globalThis.fetch;
+ const dynamic = {...item(upstream), native_cost:null, pricing:{...item(upstream).pricing, unit:'expression', price_basis:'tiered_expression'}};
+ globalThis.fetch = async (input) => {
+  if (String(input) === issuer+'/api/oauth2/catalog') return json({schema_version:1,resource:issuer+'/api/oauth2',models:[dynamic]});
+  throw new Error('unexpected provider hook request');
+ };
+ try {
+  const hooks = await LmmPlugin(context);
+  const config: Config = {provider:{lmm:{models:{[upstream]:{limit:{context:8000,output:2000},tool_call:true,reasoning:false,attachment:false,temperature:true,options:{lmmApi:'openai-completions'}}}}}};
+  await hooks.config!(config);
+  const auth = parseToken({token_type:'Bearer',access_token:'lmm_at_fixture',refresh_token:'lmm_rt_fixture',expires_in:3600,scope:`catalog:read balance:read usage:read models:invoke group:${group}`},issuer,Date.now());
+  const hostProvider = makeProvider();
+  hostProvider.models[upstream].cost = {input:3,output:4,cache:{read:0.5,write:0.75}};
+  const listed = await (hooks as any).provider.models(hostProvider,{auth});
+  assert.equal(Object.keys(listed).length, 1);
+  assert.match(listed[id].name, /LMM variable billing/);
+  assert.equal(listed[id].cost.input, 3);
+  assert.equal(listed[id].options.lmmReferenceCost, true);
+ } finally { globalThis.fetch = originalFetch; }
+});
+
+test('Magpie provider hook uses the bundled exact vendor reference snapshot for dynamic billing', async () => {
+ const originalFetch = globalThis.fetch;
+ const dynamic = {...item('gpt-5.4'), native_cost:null, pricing:{...item('gpt-5.4').pricing, unit:'expression', price_basis:'tiered_expression'}};
+ globalThis.fetch = async (input) => {
+  if (String(input) === issuer+'/api/oauth2/catalog') return json({schema_version:1,resource:issuer+'/api/oauth2',models:[dynamic]});
+  throw new Error('unexpected provider hook request');
+ };
+ try {
+  const hooks = await LmmPlugin(context);
+  const config: Config = {provider:{lmm:{models:{}}}};
+  await hooks.config!(config);
+  const auth = parseToken({token_type:'Bearer',access_token:'lmm_at_fixture',refresh_token:'lmm_rt_fixture',expires_in:3600,scope:`catalog:read balance:read usage:read models:invoke group:${group}`},issuer,Date.now());
+  const listed = await (hooks as any).provider.models(makeProvider(),{auth});
+  assert.equal(Object.keys(listed).length, 1);
+  assert.match(listed[idFor('gpt-5.4')].name, /LMM variable billing/);
+  assert.equal(listed[idFor('gpt-5.4')].options.lmmReferenceCost, true);
  } finally { globalThis.fetch = originalFetch; }
 });
 

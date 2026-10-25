@@ -33,7 +33,7 @@ Magpie 将 OAuth 凭据保存在私有的 `plugin-auth.json`，无需复制 API 
 
 ## 模型与安全
 
-内置 models.dev 的 135 个明确能力配置。仅展示授权目录中匹配的模型，价格和计费组来自 LMM；不猜未知模型能力或把未知价格显示为零。支持 OpenAI Chat、Responses 和 Anthropic Messages，每个模型选择对应 SDK，调用时恢复真实模型名并附带授权计费组。Magpie 会在加载请求传输前调用按账号的模型目录钩子。
+内置 models.dev 的 135 个明确能力配置。展示授权目录中有精确能力资料的模型；静态价格使用 LMM 账户实际目录价格，动态/表达式计费的模型使用内置精确 models.dev 供应商参考价（宿主提供的精确价格会覆盖它），并明确标注“LMM 动态计费”，参考价不是 LMM 报价。未知、按请求计费且没有安全参考价的模型不会伪装成免费模型。支持 OpenAI Chat、Responses 和 Anthropic Messages，每个模型选择对应 SDK，调用时恢复真实模型名并附带授权计费组。Magpie 会在加载请求传输前调用按账号的模型目录钩子。
 
 PKCE、回调 state/issuer 校验、刷新轮换、重复刷新阻止、流式输出和取消均已实现。OpenCode 保存原生凭据，Magpie 保存账号范围的 `plugin-auth.json`，插件不再写第二份凭据。OpenCode 模式下插件读取 `$XDG_DATA_HOME/opencode/auth.json`（默认 `~/.local/share/opencode/auth.json`）；Magpie 模式下则由宿主传入当前账号。刷新标记只保存摘要，位于 `~/.local/state/opencode-lmm-auth/refresh`；不要删除标记后重试刷新。移除本地凭据不等于服务端撤销授权。
 

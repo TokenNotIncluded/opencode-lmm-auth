@@ -2,14 +2,30 @@ import type { Model, Provider } from '@opencode-ai/sdk';
 import { canonicalId, nonnegative, object, requireValue, text } from './protocol.ts';
 
 export type Route = { upstream: string; group: string; path: string };
+export type ReferenceCost = Model['cost'];
 const protocols: Record<string, {npm: string; path: string}> = {
   'openai-completions': {npm: '@ai-sdk/openai-compatible', path: '/v1/chat/completions'},
   'openai-responses': {npm: '@ai-sdk/openai', path: '/v1/responses'},
   'anthropic-messages': {npm: '@ai-sdk/anthropic', path: '/v1/messages'},
 };
 
+/** Read host/vendor reference rates without treating them as an LMM quote. */
+export function normalizeReferenceCost(value: unknown): ReferenceCost | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+  const row = value as Record<string, unknown>;
+  const cache = typeof row.cache === 'object' && row.cache !== null && !Array.isArray(row.cache)
+    ? row.cache as Record<string, unknown> : {};
+  const input = row.input;
+  const output = row.output;
+  const read = row.cache_read ?? row.cacheRead ?? cache.read;
+  const write = row.cache_write ?? row.cacheWrite ?? cache.write;
+  if (![input, output, read, write].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)) return undefined;
+  if (![input, output, read, write].some(value => (value as number) > 0)) return undefined;
+  return {input: input as number, output: output as number, cache: {read: read as number, write: write as number}};
+}
+
 /** Exact user-supplied capability profiles only; never guess limits from a name. */
-export function admitCatalog(value: Record<string, unknown>, provider: Provider, issuer: string, scope: string, allowedProfiles: Set<string>): { models: Record<string, Model>; routes: Map<string, Route> } {
+export function admitCatalog(value: Record<string, unknown>, provider: Provider, issuer: string, scope: string, allowedProfiles: Set<string>, referenceCosts: ReadonlyMap<string, ReferenceCost> = new Map()): { models: Record<string, Model>; routes: Map<string, Route> } {
   requireValue(value.schema_version === 1 && value.resource === `${issuer}/api/oauth2` && Array.isArray(value.models) && value.models.length <= 10000);
   const models: Record<string, Model> = Object.create(null);
   const routes = new Map<string, Route>();
@@ -28,11 +44,25 @@ export function admitCatalog(value: Record<string, unknown>, provider: Provider,
     const protocol = protocols[api];
     if (!protocol || !Array.isArray(item.apis) || !item.apis.includes(api)) continue;
     const pricing = object(item.pricing);
-    // Unknown/request/expression billing cannot be represented accurately by
-    // OpenCode's mandatory numeric token cost fields. Omit these models.
-    if (pricing.unit !== 'million_tokens' || pricing.price_basis !== 'configured_base_rates' || pricing.currency !== 'USD' || item.native_cost === null) continue;
-    const cost = object(item.native_cost);
-    models[id] = {...profile, id, providerID: 'lmm', name: `${text(item.name)} [${text(item.group)}]`, api: {id, url: `${issuer}/v1`, npm: protocol.npm}, cost: {input: nonnegative(cost.input), output: nonnegative(cost.output), cache: {read: nonnegative(cost.cacheRead), write: nonnegative(cost.cacheWrite)}}, headers: {}, options: {...profile.options}};
+    const nativePricing = pricing.currency === 'USD' && pricing.unit === 'million_tokens' &&
+      (pricing.price_basis === 'configured_base_rates' || pricing.price_basis === 'dynamic_estimate') && item.native_cost !== null;
+    const variablePricing = pricing.currency === 'USD' && item.native_cost === null &&
+      (pricing.unit === 'expression' || pricing.price_basis === 'tiered_expression');
+    if (!nativePricing && !variablePricing) continue;
+    const reference = variablePricing ? referenceCosts.get(upstream) : undefined;
+    // OpenCode requires numeric cost fields. A host/vendor reference cost lets
+    // us list a dynamic LMM route while the visible label/options state that it
+    // is an estimate, never the account's final server quote.
+    if (variablePricing && !reference) continue;
+    const native = nativePricing ? object(item.native_cost) : undefined;
+    const modelCost = nativePricing
+      ? {input: nonnegative(native!.input), output: nonnegative(native!.output), cache: {read: nonnegative(native!.cacheRead), write: nonnegative(native!.cacheWrite)}}
+      : reference!;
+    const options = {
+      ...profile.options,
+      ...(variablePricing ? {lmmPricingBasis: pricing.price_basis, lmmReferenceCost: true} : {}),
+    };
+    models[id] = {...profile, id, providerID: 'lmm', name: `${text(item.name)} [${text(item.group)}]${variablePricing ? ' · LMM variable billing' : ''}`, api: {id, url: `${issuer}/v1`, npm: protocol.npm}, cost: modelCost, headers: {}, options};
     routes.set(id, {upstream, group, path: protocol.path});
   }
   return {models, routes};

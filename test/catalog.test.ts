@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Model, Provider } from '@opencode-ai/sdk';
-import { admitCatalog, prepareRelay } from '../src/catalog.ts';
+import { admitCatalog, normalizeReferenceCost, prepareRelay } from '../src/catalog.ts';
 
 const issuer = 'https://api.lmm.best';
 const group = 'ZGVmYXVsdA';
@@ -11,7 +11,7 @@ const modalities = {text:true, audio:false, image:false, video:false, pdf:false}
 const profile: Model = {id:upstream, providerID:'lmm', name:'Model', status:'active', headers:{}, api:{id:upstream,url:issuer+'/v1',npm:'@ai-sdk/openai-compatible'}, cost:{input:0,output:0,cache:{read:0,write:0}}, options:{lmmApi:'openai-completions'}, limit:{context:8000, output:2000}, capabilities:{toolcall:true, reasoning:false, attachment:false, temperature:true, input:modalities, output:modalities}};
 const provider: Provider = {id:'lmm', name:'LMM', source:'config', env:[], options:{}, models:{[upstream]:profile}};
 const item = {id, upstream_model:upstream, group_id:group, group:'default', name:'Model', apis:['openai-completions'], pricing:{currency:'USD', unit:'million_tokens', price_basis:'configured_base_rates'}, native_cost:{input:1, output:2, cacheRead:0.1, cacheWrite:0.2}};
-const catalog = (entry = item) => ({schema_version:1, resource:issuer+'/api/oauth2', models:[entry]});
+const catalog = (entry: any = item) => ({schema_version:1, resource:issuer+'/api/oauth2', models:[entry]});
 const admit = (entry = item) => admitCatalog(catalog(entry), provider, issuer, `group:${group}`, new Set([upstream]));
 
 test('catalog generates distinct group model id and preserves exact supplied capabilities', () => {
@@ -29,6 +29,24 @@ test('catalog refuses unknown prices and unverified models, and fails on scope m
  assert.equal(Object.keys(admitCatalog(catalog(), provider, issuer, `group:${group}`, new Set()).models).length, 0);
  assert.throws(() => admitCatalog(catalog(), provider, issuer, 'group:b3RoZXI', new Set([upstream])));
  assert.throws(() => admit({...item, id:'lmm:bad:bad'}));
+});
+
+test('catalog admits dynamic billing with an explicit host reference cost and labels it', () => {
+ const dynamic = {...item, native_cost:null, pricing:{...item.pricing, unit:'expression', price_basis:'tiered_expression'}};
+ const result = admitCatalog(catalog(dynamic), provider, issuer, `group:${group}`, new Set([upstream]), new Map([[upstream, {input:3, output:4, cache:{read:0.5, write:0.75}}]]));
+ assert.equal(Object.keys(result.models).length, 1);
+ assert.equal(result.models[id].cost.input, 3);
+ assert.match(result.models[id].name, /LMM variable billing/);
+ assert.equal(result.models[id].options.lmmPricingBasis, 'tiered_expression');
+ assert.equal(result.models[id].options.lmmReferenceCost, true);
+ assert.equal(result.routes.get(id)?.upstream, upstream);
+});
+
+test('catalog refuses a zero-filled host cost instead of presenting dynamic billing as free', () => {
+ const dynamic = {...item, native_cost:null, pricing:{...item.pricing, unit:'expression', price_basis:'tiered_expression'}};
+ assert.equal(normalizeReferenceCost({input:0, output:0, cache_read:0, cache_write:0}), undefined);
+ const result = admitCatalog(catalog(dynamic), provider, issuer, `group:${group}`, new Set([upstream]), new Map());
+ assert.equal(Object.keys(result.models).length, 0);
 });
 
 test('relay replaces synthetic id, strips alternate credentials and preserves cancellation', async () => {

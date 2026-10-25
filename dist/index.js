@@ -4,9 +4,10 @@ import { isAbsolute, join } from 'node:path';
 import { LmmHttp } from "./http.js";
 import { OAuthSession, unpack } from "./oauth.js";
 import { RefreshJournal } from "./refresh-journal.js";
-import { admitCatalog, prepareRelay } from "./catalog.js";
+import { admitCatalog, normalizeReferenceCost, prepareRelay } from "./catalog.js";
 import { LmmError, requireValue } from "./protocol.js";
 import { builtinProfiles } from "./metadata.js";
+import { referenceCosts } from "./reference-costs.js";
 const LmmOAuthPlugin = async ({ client }, options) => {
     const http = new LmmHttp({ issuer: typeof options?.issuer === 'string' ? options.issuer : undefined });
     const stateHome = process.env.XDG_STATE_HOME;
@@ -14,6 +15,8 @@ const LmmOAuthPlugin = async ({ client }, options) => {
     const oauth = new OAuthSession(http, new RefreshJournal(join(stateDirectory, 'opencode-lmm-auth', 'refresh')));
     const profiles = new Set();
     let profileModels = {};
+    const bundledReferenceCosts = new Map(Object.entries(referenceCosts));
+    let profileReferenceCosts = new Map(bundledReferenceCosts);
     const readHostAuth = async () => {
         const inline = process.env.OPENCODE_AUTH_CONTENT;
         if (inline !== undefined) {
@@ -58,10 +61,10 @@ const LmmOAuthPlugin = async ({ client }, options) => {
                 cache_write: model.cost.cache.write,
             },
         }]));
-    const loadCatalog = async (auth, providerModels) => {
+    const loadCatalog = async (auth, providerModels, referenceCosts = profileReferenceCosts) => {
         const envelope = unpack(auth, http.issuer);
         const catalog = await http.bearer('/api/oauth2/catalog', auth.access);
-        return admitCatalog(catalog, { models: providerModels }, http.issuer, envelope.scope, profiles);
+        return admitCatalog(catalog, { models: providerModels }, http.issuer, envelope.scope, profiles, referenceCosts);
     };
     const refreshAndPersist = async (auth) => {
         requireValue(process.env.OPENCODE_AUTH_CONTENT === undefined, 'The read-only OPENCODE_AUTH_CONTENT credential expired. Update it or remove it and reconnect.');
@@ -95,9 +98,14 @@ const LmmOAuthPlugin = async ({ client }, options) => {
             provider.models = { ...structuredClone(builtinProfiles), ...provider.models };
             provider.options = { ...provider.options, baseURL: `${http.issuer}/v1` };
             profiles.clear();
+            profileReferenceCosts = new Map(bundledReferenceCosts);
             for (const [id, profile] of Object.entries(provider.models ?? {})) {
-                if (profile.limit && Number.isSafeInteger(profile.limit.context) && profile.limit.context > 0 && Number.isSafeInteger(profile.limit.output) && profile.limit.output > 0 && typeof profile.tool_call === 'boolean' && typeof profile.reasoning === 'boolean' && typeof profile.attachment === 'boolean' && typeof profile.temperature === 'boolean' && typeof profile.options?.lmmApi === 'string')
+                if (profile.limit && Number.isSafeInteger(profile.limit.context) && profile.limit.context > 0 && Number.isSafeInteger(profile.limit.output) && profile.limit.output > 0 && typeof profile.tool_call === 'boolean' && typeof profile.reasoning === 'boolean' && typeof profile.attachment === 'boolean' && typeof profile.temperature === 'boolean' && typeof profile.options?.lmmApi === 'string') {
                     profiles.add(id);
+                    const cost = normalizeReferenceCost(profile.cost);
+                    if (cost)
+                        profileReferenceCosts.set(id, cost);
+                }
             }
             // OpenCode 1.18.34 passes a deep copy to auth.loader; model mutations there
             // are discarded. Admit catalog models in config before host parsing instead.
@@ -142,7 +150,15 @@ const LmmOAuthPlugin = async ({ client }, options) => {
                     return provider.models ?? {};
                 try {
                     const fresh = auth.expires > Date.now() + 30_000 ? auth : await refreshAndPersist(auth);
-                    const admitted = await loadCatalog(fresh, profileModels);
+                    const hostReferenceCosts = new Map(profileReferenceCosts);
+                    for (const [id, model] of Object.entries(provider.models ?? {})) {
+                        if (!profiles.has(id))
+                            continue;
+                        const cost = normalizeReferenceCost(model.cost);
+                        if (cost)
+                            hostReferenceCosts.set(id, cost);
+                    }
+                    const admitted = await loadCatalog(fresh, profileModels, hostReferenceCosts);
                     return toProviderModels(admitted.models);
                 }
                 catch (error) {
