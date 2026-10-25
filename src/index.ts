@@ -10,6 +10,7 @@ import { admitCatalog, normalizeReferenceCost, prepareRelay, type ReferenceCost 
 import { LmmError, requireValue } from './protocol.ts';
 import { builtinProfiles } from './metadata.ts';
 import { referenceCosts } from './reference-costs.ts';
+import { deprecatedProfiles } from './model-status.ts';
 
 const LmmOAuthPlugin: Plugin = async ({client}, options) => {
   const http = new LmmHttp({issuer: typeof options?.issuer === 'string' ? options.issuer : undefined});
@@ -94,6 +95,7 @@ const LmmOAuthPlugin: Plugin = async ({client}, options) => {
       profiles.clear();
       profileReferenceCosts = new Map(bundledReferenceCosts);
       for (const [id, profile] of Object.entries(provider.models ?? {})) {
+        if (deprecatedProfiles.has(id) || profile.status === 'deprecated') continue;
         if (profile.limit && Number.isSafeInteger(profile.limit.context) && profile.limit.context > 0 && Number.isSafeInteger(profile.limit.output) && profile.limit.output > 0 && typeof profile.tool_call === 'boolean' && typeof profile.reasoning === 'boolean' && typeof profile.attachment === 'boolean' && typeof profile.temperature === 'boolean' && typeof profile.options?.lmmApi === 'string') {
           profiles.add(id);
           const cost = normalizeReferenceCost(profile.cost);

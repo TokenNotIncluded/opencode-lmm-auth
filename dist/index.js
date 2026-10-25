@@ -8,6 +8,7 @@ import { admitCatalog, normalizeReferenceCost, prepareRelay } from "./catalog.js
 import { LmmError, requireValue } from "./protocol.js";
 import { builtinProfiles } from "./metadata.js";
 import { referenceCosts } from "./reference-costs.js";
+import { deprecatedProfiles } from "./model-status.js";
 const LmmOAuthPlugin = async ({ client }, options) => {
     const http = new LmmHttp({ issuer: typeof options?.issuer === 'string' ? options.issuer : undefined });
     const stateHome = process.env.XDG_STATE_HOME;
@@ -100,6 +101,8 @@ const LmmOAuthPlugin = async ({ client }, options) => {
             profiles.clear();
             profileReferenceCosts = new Map(bundledReferenceCosts);
             for (const [id, profile] of Object.entries(provider.models ?? {})) {
+                if (deprecatedProfiles.has(id) || profile.status === 'deprecated')
+                    continue;
                 if (profile.limit && Number.isSafeInteger(profile.limit.context) && profile.limit.context > 0 && Number.isSafeInteger(profile.limit.output) && profile.limit.output > 0 && typeof profile.tool_call === 'boolean' && typeof profile.reasoning === 'boolean' && typeof profile.attachment === 'boolean' && typeof profile.temperature === 'boolean' && typeof profile.options?.lmmApi === 'string') {
                     profiles.add(id);
                     const cost = normalizeReferenceCost(profile.cost);

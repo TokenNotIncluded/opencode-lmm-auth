@@ -112,6 +112,23 @@ test('Magpie provider hook uses the bundled exact vendor reference snapshot for 
  } finally { globalThis.fetch = originalFetch; }
 });
 
+test('Magpie provider hook excludes exact models.dev deprecated profiles', async () => {
+ const originalFetch = globalThis.fetch;
+ const deprecated = {...item('gpt-4'), native_cost:null, pricing:{...item('gpt-4').pricing, unit:'expression', price_basis:'tiered_expression'}};
+ globalThis.fetch = async (input) => {
+  if (String(input) === issuer+'/api/oauth2/catalog') return json({schema_version:1,resource:issuer+'/api/oauth2',models:[deprecated]});
+  throw new Error('unexpected provider hook request');
+ };
+ try {
+  const hooks = await LmmPlugin(context);
+  const config: Config = {provider:{lmm:{models:{}}}};
+  await hooks.config!(config);
+  const auth = parseToken({token_type:'Bearer',access_token:'lmm_at_fixture',refresh_token:'lmm_rt_fixture',expires_in:3600,scope:`catalog:read balance:read usage:read models:invoke group:${group}`},issuer,Date.now());
+  const listed = await (hooks as any).provider.models(makeProvider(),{auth});
+  assert.deepEqual(listed, {});
+ } finally { globalThis.fetch = originalFetch; }
+});
+
 test('Magpie marks an account expired when its catalog authorization is refused', async () => {
  const originalFetch = globalThis.fetch;
  globalThis.fetch = async (input) => {

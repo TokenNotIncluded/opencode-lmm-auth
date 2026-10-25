@@ -1,0 +1,36 @@
+// Exact deprecated flags from the reviewed models.dev records used by metadata.ts.
+// Deprecated upstream entries are excluded from selectable LMM models; the
+// gateway catalog remains authoritative for the models that are still served.
+export const deprecatedProfiles = new Set([
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
+    "gpt-4",
+    "gpt-4-turbo",
+    "gpt-4.1-nano",
+    "gpt-4o-2024-05-13",
+    "o1",
+    "o1-pro",
+    "o3-mini",
+    "o4-mini",
+    "qvq-max",
+    "qwen-omni-turbo",
+    "qwen-omni-turbo-realtime",
+    "qwen-turbo",
+    "qwen-vl-max",
+    "qwen-vl-plus",
+    "qwen2-5-omni-7b",
+    "qwen3-14b",
+    "qwen3-235b-a22b",
+    "qwen3-32b",
+    "qwen3-8b",
+    "qwen3-coder-30b-a3b-instruct",
+    "qwen3-coder-480b-a35b-instruct",
+    "qwen3-coder-plus",
+    "qwen3-max",
+    "qwen3-next-80b-a3b-instruct",
+    "qwen3-next-80b-a3b-thinking",
+    "qwen3-omni-flash-realtime",
+    "qwen3-vl-235b-a22b",
+    "qwen3.6-max-preview",
+    "qwq-plus"
+]);

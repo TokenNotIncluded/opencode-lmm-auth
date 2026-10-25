@@ -1,6 +1,6 @@
 {
   "name": "@tokennotincluded/opencode-lmm-auth",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "LMM OAuth provider plugin for OpenCode and Magpie",
   "type": "module",
   "main": "./dist/index.js",
