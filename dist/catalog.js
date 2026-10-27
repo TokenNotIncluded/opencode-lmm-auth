@@ -1,4 +1,13 @@
 import { canonicalId, nonnegative, object, requireValue, text } from "./protocol.js";
+export function logCatalogDiagnostics(diagnostics, logger = console, previousFingerprint) {
+    const fingerprint = JSON.stringify(diagnostics);
+    if (fingerprint === previousFingerprint)
+        return fingerprint;
+    for (const group of diagnostics.groups) {
+        logger.info(`[LMM catalog] group=${group.group} admitted=${group.admitted}/${group.total} filtered=${group.filtered.map(item => `${item.reason}:${item.count}`).join(',') || 'none'}`);
+    }
+    return fingerprint;
+}
 const protocols = {
     'openai-completions': { npm: '@ai-sdk/openai-compatible', path: '/v1/chat/completions' },
     'openai-responses': { npm: '@ai-sdk/openai', path: '/v1/responses' },
@@ -26,6 +35,11 @@ export function admitCatalog(value, provider, issuer, scope, allowedProfiles, re
     requireValue(value.schema_version === 1 && value.resource === `${issuer}/api/oauth2` && Array.isArray(value.models) && value.models.length <= 10000);
     const models = Object.create(null);
     const routes = new Map();
+    const counts = new Map();
+    const reject = (group, reason) => {
+        const count = counts.get(group);
+        count.filtered.set(reason, (count.filtered.get(reason) ?? 0) + 1);
+    };
     for (const raw of value.models) {
         const item = object(raw);
         const upstream = text(item.upstream_model);
@@ -33,40 +47,64 @@ export function admitCatalog(value, provider, issuer, scope, allowedProfiles, re
         const id = text(item.id, 4096);
         requireValue(id === `lmm:${group}:${Buffer.from(upstream).toString('base64url')}` && !routes.has(id));
         requireValue(scope.split(' ').includes(`group:${group}`));
+        const count = counts.get(group) ?? { total: 0, admitted: 0, filtered: new Map() };
+        count.total++;
+        counts.set(group, count);
         const profile = provider.models[upstream];
-        if (!profile || !allowedProfiles.has(upstream))
+        if (!profile || !allowedProfiles.has(upstream)) {
+            reject(group, 'missing_profile');
             continue;
+        }
         const configured = typeof profile.options.lmmApi === 'string' ? profile.options.lmmApi : '';
         const supported = Array.isArray(profile.options.lmmSupportedApis) ? profile.options.lmmSupportedApis : [configured];
         const api = supported.find((candidate) => typeof candidate === 'string' && candidate in protocols && Array.isArray(item.apis) && item.apis.includes(candidate)) ?? configured;
         const protocol = protocols[api];
-        if (!protocol || !Array.isArray(item.apis) || !item.apis.includes(api))
+        if (!protocol || !Array.isArray(item.apis) || !item.apis.includes(api)) {
+            reject(group, 'unsupported_protocol');
             continue;
+        }
         const pricing = object(item.pricing);
         const nativePricing = pricing.currency === 'USD' && pricing.unit === 'million_tokens' &&
             (pricing.price_basis === 'configured_base_rates' || pricing.price_basis === 'dynamic_estimate') && item.native_cost !== null;
         const variablePricing = pricing.currency === 'USD' && item.native_cost === null &&
             (pricing.unit === 'expression' || pricing.price_basis === 'tiered_expression');
-        if (!nativePricing && !variablePricing)
+        // Core currently publishes token rates in pricing, but leaves cache_write
+        // unknown and native_cost null. Do not turn the missing rate into zero.
+        const incompleteTokenPricing = pricing.currency === 'USD' && item.native_cost === null && pricing.unit === 'million_tokens' &&
+            (pricing.price_basis === 'configured_base_rates' || pricing.price_basis === 'effective_user_rates');
+        if (!nativePricing && !variablePricing && !incompleteTokenPricing) {
+            reject(group, 'unsupported_pricing');
             continue;
-        const reference = variablePricing ? referenceCosts.get(upstream) : undefined;
-        // OpenCode requires numeric cost fields. A host/vendor reference cost lets
-        // us list a dynamic LMM route while the visible label/options state that it
-        // is an estimate, never the account's final server quote.
-        if (variablePricing && !reference)
+        }
+        const reference = (variablePricing || incompleteTokenPricing) ? referenceCosts.get(upstream) : undefined;
+        // OpenCode requires numeric cost fields. A reference estimate lets us list
+        // an incomplete or dynamic LMM route; the label/options distinguish it from
+        // the account's actual server price.
+        if ((variablePricing || incompleteTokenPricing) && !reference) {
+            reject(group, 'missing_reference_price');
             continue;
+        }
         const native = nativePricing ? object(item.native_cost) : undefined;
         const modelCost = nativePricing
             ? { input: nonnegative(native.input), output: nonnegative(native.output), cache: { read: nonnegative(native.cacheRead), write: nonnegative(native.cacheWrite) } }
             : reference;
         const options = {
             ...profile.options,
-            ...(variablePricing ? { lmmPricingBasis: pricing.price_basis, lmmReferenceCost: true } : {}),
+            ...((variablePricing || incompleteTokenPricing) ? { lmmPricingBasis: pricing.price_basis, lmmReferenceCost: true } : {}),
         };
-        models[id] = { ...profile, id, providerID: 'lmm', name: `${text(item.name)} [${text(item.group)}]${variablePricing ? ' · LMM variable billing' : ''}`, api: { id, url: `${issuer}/v1`, npm: protocol.npm }, cost: modelCost, headers: {}, options };
+        const pricingLabel = variablePricing ? ' · LMM variable billing' : incompleteTokenPricing ? (upstream === 'claude-haiku-5-5' ? ' · base-tier reference estimate' : ' · reference estimate') : '';
+        models[id] = { ...profile, id, providerID: 'lmm', name: `${text(item.name)} [${text(item.group)}]${pricingLabel}`, api: { id, url: `${issuer}/v1`, npm: protocol.npm }, cost: modelCost, headers: {}, options };
         routes.set(id, { upstream, group, path: protocol.path });
+        count.admitted++;
     }
-    return { models, routes };
+    const groups = [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([group, count], index) => ({
+        // Logs use an ordinal and aggregate counts, never the raw group ID or name.
+        group: `group-${index + 1}`,
+        total: count.total,
+        admitted: count.admitted,
+        filtered: [...count.filtered.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([reason, total]) => ({ reason, count: total })),
+    }));
+    return { models, routes, diagnostics: { groups } };
 }
 export function relayRequest(input, init, issuer, routes, access) {
     const original = new Request(input, init);

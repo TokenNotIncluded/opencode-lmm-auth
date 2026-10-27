@@ -5,6 +5,10 @@ import type { Model } from '@opencode-ai/sdk';
 // catalog pricing and settlement remain authoritative, especially for dynamic
 // or expression-based billing.
 export const referenceCosts: Readonly<Record<string, Model['cost']>> = {
+  // models.dev provider records, cross-checked against the 2026-10-14 snapshot.
+  "kimi-k3": {input: 3, output: 15, cache: {read: 0.3, write: 3}},
+  // Base tier only; actual LMM settlement and context-dependent rates may differ.
+  "claude-haiku-5-5": {input: 0.1, output: 0.5, cache: {read: 0.01, write: 0.125}},
   "gpt-5.4": {
     "input": 2.5,
     "output": 15,

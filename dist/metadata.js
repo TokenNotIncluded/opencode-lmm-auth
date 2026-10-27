@@ -2,6 +2,20 @@
 // Only text-output tool-capable models with explicit metadata. No prices copied.
 // Conflicting capabilities across direct-provider records are excluded.
 export const builtinProfiles = {
+    // These records were cross-checked against the 2026-10-14 models.dev snapshot
+    // in packages/pi-lmm-provider and the original models.dev provider records.
+    "kimi-k3": {
+        name: "Kimi K3", tool_call: true, reasoning: true, attachment: true, temperature: false,
+        modalities: { input: ["text", "image", "video"], output: ["text"] },
+        limit: { context: 1048576, output: 1048576 },
+        options: { lmmApi: "openai-completions", lmmMetadataSource: "https://models.dev/moonshotai#kimi-k3" },
+    },
+    "claude-haiku-5-5": {
+        name: "Claude Haiku 5.5", tool_call: true, reasoning: true, attachment: true, temperature: false,
+        modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+        limit: { context: 1000000, output: 128000 },
+        options: { lmmApi: "anthropic-messages", lmmSupportedApis: ["anthropic-messages", "openai-completions"], lmmMetadataSource: "https://models.dev/anthropic#claude-haiku-5-5" },
+    },
     "gpt-5.4": {
         "name": "GPT-5.4",
         "tool_call": true,

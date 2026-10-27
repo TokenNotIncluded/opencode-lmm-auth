@@ -14,8 +14,9 @@ const modalities = {text:true, audio:false, image:false, video:false, pdf:false}
 const profile: Model = {id:upstream, providerID:'lmm', name:'Model', status:'active', headers:{}, api:{id:upstream,url:issuer+'/v1',npm:'@ai-sdk/openai-compatible'}, cost:{input:0,output:0,cache:{read:0,write:0}}, options:{lmmApi:'openai-completions'}, limit:{context:8000, output:2000}, capabilities:{toolcall:true, reasoning:false, attachment:false, temperature:true, input:modalities, output:modalities}};
 const makeProvider = (): Provider => ({id:'lmm',name:'LMM',source:'config',env:[],options:{},models:{[upstream]:structuredClone(profile),'unverified-model':{...structuredClone(profile),id:'unverified-model'}}});
 
+// Magpie's host-owned PluginInput interface; user plugin options are separate.
 // No host SDK operations are needed when a still-valid OAuth credential is used.
-const context = {client:{}} as PluginInput;
+const context = {client:{}, magpie:{option:()=>undefined, options:()=>({})}} as unknown as PluginInput;
 const json = (value: unknown) => new Response(JSON.stringify(value), {headers:{'content-type':'application/json'}});
 const item = (name:string) => ({id:`lmm:${group}:${Buffer.from(name).toString('base64url')}`,upstream_model:name,group_id:group,group:'default',name,apis:['openai-completions'],pricing:{currency:'USD',unit:'million_tokens',price_basis:'configured_base_rates'},native_cost:{input:1,output:2,cacheRead:0.1,cacheWrite:0.2}});
 

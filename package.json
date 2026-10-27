@@ -15,19 +15,22 @@
     "provider"
   ],
   "magpie": {
-    "icon": "https://api.lmm.best/favicon.ico",
+    "icon": "https://raw.githubusercontent.com/TokenNotIncluded/opencode-lmm-auth/main/assets/icon.svg",
     "maxConcurrency": 4
   },
   "exports": {
-    ".": "./dist/index.js"
+    ".": "./dist/index.js",
+    "./server": "./dist/opencode-v2.js"
   },
   "files": [
+    "assets",
     "src",
     "README.md",
     "README.zh-CN.md",
     "LICENSE",
     "dist",
-    "scripts"
+    "scripts",
+    "server.js"
   ],
   "engines": {
     "node": ">=22.19.0"
@@ -35,8 +38,14 @@
   "peerDependencies": {
     "@opencode-ai/plugin": ">=1.18.34"
   },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@opencode-ai/plugin": "1.18.34",
+    "@opencode/plugin": "2.1.4",
     "@types/node": "^22.0.0",
     "typescript": "^5.9.3"
   },
@@ -47,7 +56,8 @@
     "test:host": "node scripts/test-host.mjs",
     "build": "tsc -p tsconfig.build.json",
     "prepack": "npm run build",
-    "test:integration": "node scripts/test-integration.mjs"
+    "test:integration": "node scripts/test-integration.mjs",
+    "test:v2": "node scripts/test-opencode-v2.mjs"
   },
   "repository": {
     "type": "git",

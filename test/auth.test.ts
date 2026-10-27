@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LmmHttp } from '../src/http.ts';
@@ -91,8 +91,21 @@ test('lost refresh response fences the token across a new process/session', asyn
  const http = new LmmHttp({fetch: async () => {requests++; throw new Error('connection lost');}});
  const auth = parseToken(token(), issuer, Date.now());
  await assert.rejects(new OAuthSession(http, new RefreshJournal(directory)).refresh(auth));
- await assert.rejects(new OAuthSession(http, new RefreshJournal(directory)).refresh(auth));
+ await assert.rejects(new OAuthSession(http, new RefreshJournal(directory)).refresh(auth), {
+  code:'refresh_already_attempted', message:'LMM refresh was already attempted. Reconnect this account.',
+ });
  assert.equal(requests, 1);
+}));
+
+test('shared authorization and journal errors give host-neutral reconnect guidance', async () => fixture(async directory => {
+ for (const status of [401, 403]) {
+  const http = new LmmHttp({fetch: async () => new Response('sensitive response', {status})});
+  await assert.rejects(http.request('/test'), {code:'unauthorized', message:'LMM authorization is unavailable or was revoked. Reconnect this account; no API-key fallback is allowed.'});
+ }
+ assert.throws(() => new RefreshJournal(''), {code:'refresh_storage_unverified', message:'LMM refresh could not be safely recorded. Reconnect this account.'});
+ await writeFile(join(directory, 'unavailable'), 'not a directory');
+ const journal = new RefreshJournal(join(directory, 'unavailable', 'nested'));
+ await assert.rejects(journal.begin(issuer, 'lmm_rt_test'), {code:'refresh_storage_unavailable', message:'LMM refresh could not be safely recorded. Reconnect this account.'});
 }));
 
 test('issuer URL credentials and insecure transports are rejected', () => {
