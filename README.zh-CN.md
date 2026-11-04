@@ -75,7 +75,8 @@ npm test
 npm run typecheck
 npm run pack:check
 # 在临时 fixture HOME 外新建私有证据目录：
-evidence=$(mktemp -d "$HOME/Backups/plugin-opencode-v2-XXXXXXXX")
+install -d -m 700 "${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api"
+evidence=$(mktemp -d "${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/plugin-opencode-v2-XXXXXXXX")
 chmod 700 "$evidence"
 OPENCODE_V2_BIN=/绝对路径/原生opencode-2.1.4 \
   LMM_V2_TEST_OUTPUT="$evidence" npm run test:v2

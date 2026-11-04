@@ -180,7 +180,8 @@ npm run typecheck
 npm run build
 npm run pack:check
 # New, private retained evidence directory outside the temporary fixture HOME:
-evidence=$(mktemp -d "$HOME/Backups/plugin-opencode-v2-XXXXXXXX")
+install -d -m 700 "${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api"
+evidence=$(mktemp -d "${XDG_STATE_HOME:-$HOME/.local/state}/lmm-api/plugin-opencode-v2-XXXXXXXX")
 chmod 700 "$evidence"
 OPENCODE_V2_BIN=/absolute/path/to/native/opencode-2.1.4 \
   LMM_V2_TEST_OUTPUT="$evidence" npm run test:v2
