@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
-import { CALLBACK_PATH, LmmError } from "./protocol.js";
+import { CALLBACK_PATH, LmmError } from './protocol.js';
 function equal(left, right) {
     if (left === null || left.length > 4096)
         return false;

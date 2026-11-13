@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-import { LmmHttp } from "./http.js";
-import { OAuthSession, unpack } from "./oauth.js";
-import { RefreshJournal } from "./refresh-journal.js";
-import { admitCatalog, logCatalogDiagnostics, normalizeReferenceCost, prepareRelay } from "./catalog.js";
-import { LmmError, requireValue } from "./protocol.js";
-import { builtinProfiles } from "./metadata.js";
-import { referenceCosts } from "./reference-costs.js";
-import { deprecatedProfiles } from "./model-status.js";
+import { LmmHttp } from './http.js';
+import { OAuthSession, unpack } from './oauth.js';
+import { RefreshJournal } from './refresh-journal.js';
+import { admitCatalog, logCatalogDiagnostics, normalizeReferenceCost, prepareRelay } from './catalog.js';
+import { LmmError, requireValue } from './protocol.js';
+import { builtinProfiles } from './metadata.js';
+import { referenceCosts } from './reference-costs.js';
+import { deprecatedProfiles } from './model-status.js';
 // Magpie 2a3d9f5a supplies this host-owned interface in PluginInput. Neither
 // a provider.models invocation nor user plugin options establish account scope.
 const legacyRefusal = 'LMM blocks inference on this OpenCode host because it cannot disable automatic paid request retries. Use the supported OpenCode V2 integration or Magpie. OAuth login remains available.';

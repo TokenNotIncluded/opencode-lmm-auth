@@ -100,7 +100,10 @@ function makeHost() {
   };
   const registration = async () => ({ dispose: async () => {} });
   const context: Context = {
-    options: {}, event: { subscribe: options => events.subscribe(options?.signal) },
+    options: {}, event: { subscribe: (options => {
+      assert.equal(options?.types, undefined, 'this fixture subscribes to all event types');
+      return events.subscribe(options?.signal);
+    }) as Context['event']['subscribe'] },
     integration: {
       transform: async callback => { callback(integrationEditor); return registration(); },
       connection: {

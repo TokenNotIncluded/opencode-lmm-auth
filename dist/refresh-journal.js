@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, open } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { LmmError } from "./protocol.js";
+import { LmmError } from './protocol.js';
 const FIXED_FAILURE = 'LMM refresh could not be safely recorded. Reconnect this account.';
 const ALREADY_ATTEMPTED = 'LMM refresh was already attempted. Reconnect this account.';
 export function refreshDigest(refresh) {

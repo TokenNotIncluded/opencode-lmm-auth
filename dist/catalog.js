@@ -1,4 +1,4 @@
-import { canonicalId, nonnegative, object, requireValue, text } from "./protocol.js";
+import { canonicalId, nonnegative, object, requireValue, text } from './protocol.js';
 export function logCatalogDiagnostics(diagnostics, logger = console, previousFingerprint) {
     const fingerprint = JSON.stringify(diagnostics);
     if (fingerprint === previousFingerprint)

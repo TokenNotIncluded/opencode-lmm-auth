@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { listenCallback } from "./callback.js";
-import { APPLICATION_SCOPES, CLIENT_ID, accessToken, nonnegative, object, parseScope, requireValue, text } from "./protocol.js";
+import { listenCallback } from './callback.js';
+import { APPLICATION_SCOPES, CLIENT_ID, accessToken, nonnegative, object, parseScope, requireValue, text } from './protocol.js';
 // OpenCode persists a fixed OAuth shape. Keep issuer and granted scope inside its
 // refresh field, never in a second plaintext credential file or inferred from config.
 export function unpack(auth, issuer) {
