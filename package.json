@@ -20,7 +20,8 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./server": "./dist/opencode-v2.js"
+    "./server": "./dist/opencode-v2.js",
+    "./magpie": "./dist/magpie.js"
   },
   "files": [
     "assets",
