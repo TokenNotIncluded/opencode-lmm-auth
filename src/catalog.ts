@@ -1,3 +1,4 @@
+import { parseMetadata, contextBudget, textOutput } from './server-metadata.ts';
 import type { Model, Provider } from '@opencode-ai/sdk';
 import { canonicalId, nonnegative, object, requireValue, text } from './protocol.ts';
 
@@ -34,7 +35,7 @@ export function normalizeReferenceCost(value: unknown): ReferenceCost | undefine
   return {input: input as number, output: output as number, cache: {read: read as number, write: write as number}};
 }
 
-/** Exact user-supplied capability profiles only; never guess limits from a name. */
+/** Server metadata takes priority; old catalogs retain exact-profile compatibility. */
 export function admitCatalog(value: Record<string, unknown>, provider: Provider, issuer: string, scope: string, allowedProfiles: Set<string>, referenceCosts: ReadonlyMap<string, ReferenceCost> = new Map()): CatalogAdmission {
   requireValue(value.schema_version === 1 && value.resource === `${issuer}/api/oauth2` && Array.isArray(value.models) && value.models.length <= 10000);
   const models: Record<string, Model> = Object.create(null);
@@ -54,8 +55,21 @@ export function admitCatalog(value: Record<string, unknown>, provider: Provider,
     const count = counts.get(group) ?? {total: 0, admitted: 0, filtered: new Map<string, number>()};
     count.total++;
     counts.set(group, count);
-    const profile = provider.models[upstream];
-    if (!profile || !allowedProfiles.has(upstream)) { reject(group, 'missing_profile'); continue; }
+    const metadata = parseMetadata(item.metadata);
+    let profile = provider.models[upstream];
+    if (metadata) {
+      const context = contextBudget(metadata);
+      const api = Array.isArray(item.apis) ? item.apis.find((a): a is string => typeof a === 'string' && a in protocols) : undefined;
+      if (!context || !metadata.max_output_tokens || !textOutput(metadata) || !api) { reject(group, 'missing_server_metadata'); continue; }
+      const modalities = {text: true, image: false, audio: false, video: false, pdf: false};
+      profile = {id: upstream, providerID: 'lmm', name: text(item.name), status: 'active', headers: {},
+        api: {id, url: `${issuer}/v1`, npm: protocols[api]!.npm},
+        limit: {context, output: Math.min(context, metadata.max_output_tokens)},
+        capabilities: {toolcall: metadata.tool_call === true, reasoning: false, attachment: false,
+          temperature: false, input: modalities, output: modalities},
+        options: {lmmApi: api, lmmMetadata: metadata}, cost: {input: 0, output: 0, cache: {read: 0, write: 0}}};
+    }
+    if (!profile || (!metadata && !allowedProfiles.has(upstream))) { reject(group, 'missing_profile'); continue; }
     const configured = typeof profile.options.lmmApi === 'string' ? profile.options.lmmApi : '';
     const supported = Array.isArray(profile.options.lmmSupportedApis) ? profile.options.lmmSupportedApis : [configured];
     const api = supported.find((candidate): candidate is string => typeof candidate === 'string' && candidate in protocols && Array.isArray(item.apis) && item.apis.includes(candidate)) ?? configured;
@@ -63,7 +77,7 @@ export function admitCatalog(value: Record<string, unknown>, provider: Provider,
     if (!protocol || !Array.isArray(item.apis) || !item.apis.includes(api)) { reject(group, 'unsupported_protocol'); continue; }
     const pricing = object(item.pricing);
     const nativePricing = pricing.currency === 'USD' && pricing.unit === 'million_tokens' &&
-      (pricing.price_basis === 'configured_base_rates' || pricing.price_basis === 'dynamic_estimate') && item.native_cost !== null;
+      (pricing.price_basis === 'configured_base_rates' || pricing.price_basis === 'dynamic_estimate' || pricing.price_basis === 'effective_user_rates') && item.native_cost !== null;
     const variablePricing = pricing.currency === 'USD' && item.native_cost === null &&
       (pricing.unit === 'expression' || pricing.price_basis === 'tiered_expression');
     // Core currently publishes token rates in pricing, but leaves cache_write
@@ -71,7 +85,7 @@ export function admitCatalog(value: Record<string, unknown>, provider: Provider,
     const incompleteTokenPricing = pricing.currency === 'USD' && item.native_cost === null && pricing.unit === 'million_tokens' &&
       (pricing.price_basis === 'configured_base_rates' || pricing.price_basis === 'effective_user_rates');
     if (!nativePricing && !variablePricing && !incompleteTokenPricing) { reject(group, 'unsupported_pricing'); continue; }
-    const reference = (variablePricing || incompleteTokenPricing) ? referenceCosts.get(upstream) : undefined;
+    const reference = !metadata && (variablePricing || incompleteTokenPricing) ? referenceCosts.get(upstream) : undefined;
     // OpenCode requires numeric cost fields. A reference estimate lets us list
     // an incomplete or dynamic LMM route; the label/options distinguish it from
     // the account's actual server price.
@@ -81,11 +95,13 @@ export function admitCatalog(value: Record<string, unknown>, provider: Provider,
       ? {input: nonnegative(native!.input), output: nonnegative(native!.output), cache: {read: nonnegative(native!.cacheRead), write: nonnegative(native!.cacheWrite)}}
       : reference!;
     const options = {
-      ...profile.options,
+      ...profile.options, lmmPricing: pricing, lmmUpstreamModel: upstream,
       ...((variablePricing || incompleteTokenPricing) ? {lmmPricingBasis: pricing.price_basis, lmmReferenceCost: true} : {}),
     };
+    const ratio = (key: string) => typeof pricing[key] === 'number' && Number.isFinite(pricing[key]) ? String(pricing[key]) : 'unknown';
+    const metadataLabel = metadata ? ` · ${upstream} · group ×${ratio('group_multiplier')} · trust ×${ratio('trust_multiplier')}` : '';
     const pricingLabel = variablePricing ? ' · LMM variable billing' : incompleteTokenPricing ? (upstream === 'claude-haiku-5-5' ? ' · base-tier reference estimate' : ' · reference estimate') : '';
-    models[id] = {...profile, id, providerID: 'lmm', name: `${text(item.name)} [${text(item.group)}]${pricingLabel}`, api: {id, url: `${issuer}/v1`, npm: protocol.npm}, cost: modelCost, headers: {}, options};
+    models[id] = {...profile, id, providerID: 'lmm', name: `${text(item.name)} [${text(item.group)}]${metadataLabel}${pricingLabel}`, api: {id, url: `${issuer}/v1`, npm: protocol.npm}, cost: modelCost, headers: {}, options};
     routes.set(id, {upstream, group, path: protocol.path});
     count.admitted++;
   }

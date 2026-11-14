@@ -189,3 +189,22 @@ test('relay replaces synthetic id, strips alternate credentials and preserves ca
 test('relay rejects untrusted destination, keys in URL, model, group and protocol substitutions', async () => {
  for (const [url, model] of [[issuer+'/v1/chat/completions?key=secret',id], ['https://evil.example/v1/chat/completions',id], [issuer+'/v1/responses',id], [issuer+'/v1/chat/completions','other-model']]) await assert.rejects(prepareRelay(url, {method:'POST', body:JSON.stringify({model})}, issuer, admit().routes, 'lmm_at_fresh'));
 });
+
+test('server metadata registers unseen models and replaces prices and limits without local profiles', () => {
+ const metadata = {context_window: 128000, max_input_tokens: 100000, max_output_tokens: 16000,
+   input_modalities:['text'], output_modalities:['text'], reasoning:true, tool_call:true, source:'server'};
+ const row = {...item, metadata, pricing:{...item.pricing, price_basis:'effective_user_rates', group_multiplier:2, trust_multiplier:0.5}};
+ const read = (models: unknown[]) => admitCatalog({...catalog(), models}, {...provider, models:{}}, issuer, `group:${group}`, new Set());
+ const first = read([row]);
+ assert.equal(first.models[id]!.limit.context, 100000);
+ assert.equal(first.models[id]!.cost.input, 1);
+ assert.equal(first.models[id]!.options.lmmUpstreamModel, upstream);
+ assert.equal(first.models[id]!.capabilities.toolcall, true);
+ const next = read([{...row, metadata:{...metadata,context_window:64000},native_cost:{...item.native_cost,input:3}}]);
+ assert.equal(next.models[id]!.limit.context, 64000);
+ assert.equal(next.models[id]!.cost.input, 3);
+ assert.equal(read([]).routes.size, 0);
+ assert.equal(read([{...row, metadata:{...metadata,context_window:null,max_input_tokens:null}}]).routes.size, 0);
+ assert.equal(read([{...row, native_cost:null}]).routes.size, 0);
+ assert.throws(() => read([{...row,metadata:{...metadata,max_output_tokens:-1}}]));
+});
