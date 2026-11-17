@@ -145,3 +145,13 @@ test('explicit embedding types are not treated as chat merely because they outpu
  assert.equal(result.routes.size,0);
  assert.equal(result.diagnostics.groups[0]!.filtered[0]!.reason,'unsupported_modality');
 });
+
+test('zero public capacities remain unknown and cannot empty an otherwise complete catalog', () => {
+ const data=new ModelsDevCatalog({vendor:{id:'vendor',models:{zero:{id:'zero',name:'Zero',limit:{context:0,input:0,output:0},modalities:{input:['text'],output:['text']},tool_call:false,reasoning:false}}}});
+ const entry=route('zero');
+ const result=admitCatalog({...catalog(),models:[entry,item]},{...provider,models:{}},issuer,`group:${group}`,data);
+ assert.equal(result.routes.size,2);
+ assert.deepEqual(result.models[entry.id]!.limit,{context:32768,output:4096});
+ assert.equal(result.models[entry.id]!.options.lmmEstimatedLimits,true);
+ assert.match(result.models[entry.id]!.name,/estimated token limits/);
+});

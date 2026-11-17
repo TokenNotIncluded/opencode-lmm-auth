@@ -66,10 +66,13 @@ export function admitCatalog(value, provider, issuer, scope, metadataCatalog = p
             reject(group, 'unsupported_modality');
             continue;
         }
-        const context = server?.context_window ?? server?.max_input_tokens ?? profile?.limit?.context ?? reference?.limit.context ?? 32768;
-        const inputLimit = server?.max_input_tokens ?? reference?.limit.input;
+        const knownContext = server?.context_window ?? server?.max_input_tokens ?? profile?.limit?.context ?? (positiveLimit(reference?.limit.context) ? reference.limit.context : undefined);
+        const context = knownContext ?? 32768;
+        const inputLimit = server?.max_input_tokens ?? (positiveLimit(reference?.limit.input) ? reference.limit.input : undefined);
         const contextWindow = inputLimit ? Math.min(context, inputLimit) : context;
-        const outputLimit = server?.max_output_tokens ?? profile?.limit?.output ?? reference?.limit.output ?? 4096;
+        const knownOutput = server?.max_output_tokens ?? profile?.limit?.output ?? (positiveLimit(reference?.limit.output) ? reference.limit.output : undefined);
+        const outputLimit = knownOutput ?? 4096;
+        const estimatedLimits = knownContext === undefined || knownOutput === undefined;
         requireValue(positiveLimit(contextWindow) && positiveLimit(outputLimit));
         const pricing = object(item.pricing);
         const native = item.native_cost === undefined || item.native_cost === null ? undefined : object(item.native_cost);
@@ -110,7 +113,7 @@ export function admitCatalog(value, provider, issuer, scope, metadataCatalog = p
         const outputModes = modalities(output, profile?.capabilities.output);
         const unknownMetadata = !server && !reference && !profile;
         const pricingLabel = unknownCosts.length ? ' · cost estimate incomplete (server billed)' : usesReference ? ' · reference estimate (server billed)' : '';
-        const metadataLabel = unknownMetadata ? ' · metadata unavailable' : '';
+        const metadataLabel = unknownMetadata ? ' · metadata unavailable' : estimatedLimits ? ' · estimated token limits' : '';
         models[id] = {
             id, providerID: 'lmm', name: `${text(item.name)} [${text(item.group)}]${metadataLabel}${pricingLabel}`,
             status: 'active', api: { id, url: `${issuer}/v1`, npm: protocols[api].npm }, headers: {},
@@ -127,7 +130,7 @@ export function admitCatalog(value, provider, issuer, scope, metadataCatalog = p
                 ...profile?.options, lmmApi: api, lmmUpstreamModel: upstream, lmmPricing: pricing,
                 ...(server ? { lmmMetadata: server } : {}),
                 lmmMetadataSource: server?.source || reference?.source || (profile ? 'user configuration' : 'unknown'),
-                lmmMetadataStatus: unknownMetadata ? 'unknown' : 'available',
+                lmmMetadataStatus: unknownMetadata ? 'unknown' : 'available', lmmEstimatedLimits: estimatedLimits,
                 lmmPricingBasis: pricing.price_basis, lmmReferenceCost: usesReference,
                 lmmUnknownCostFields: unknownCosts,
             },
