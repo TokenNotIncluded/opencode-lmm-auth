@@ -62,12 +62,19 @@ test('Magpie provider hook lists the signed-in account catalog before loader run
  };
  try {
   const hooks = await LmmPlugin(context);
-  const config: Config = {provider:{lmm:{models:{[upstream]:{limit:{context:8000,output:2000},tool_call:true,reasoning:false,attachment:false,temperature:true,options:{lmmApi:'openai-completions'}}}}}};
+  const config: Config = {provider:{lmm:{models:{[upstream]:{limit:{context:8000,output:2000},tool_call:true,reasoning:true,attachment:true,temperature:true,modalities:{input:['text','image'],output:['text']},options:{lmmApi:'openai-completions'}}}}}};
   await hooks.config!(config);
   const auth = parseToken({token_type:'Bearer',access_token:'lmm_at_fixture',refresh_token:'lmm_rt_fixture',expires_in:3600,scope:`catalog:read balance:read usage:read models:invoke group:${group}`},issuer,Date.now());
   const listed = await (hooks as any).provider.models(makeProvider(),{auth});
   assert.deepEqual(Object.keys(listed),[id,idFor('unverified-model')]);
-  assert.equal(listed[id].provider.npm,'@ai-sdk/openai-compatible');
+  assert.equal(listed[id].api.npm,'@ai-sdk/openai-compatible');
+  assert.equal(listed[id].api.url,issuer+'/v1');
+  assert.equal(listed[id].api.id,id);
+  assert.equal(listed[id].providerID,'lmm');
+  assert.equal(listed[id].capabilities.reasoning,true);
+  assert.equal(listed[id].capabilities.input.image,true);
+  assert.equal(listed[id].capabilities.toolcall,true);
+  assert.deepEqual(listed[id].cost.cache,{read:0.1,write:0.2});
   assert.equal(listed[id].limit.context,8000);
   assert.equal(catalogCalls,1);
  } finally { globalThis.fetch = originalFetch; }

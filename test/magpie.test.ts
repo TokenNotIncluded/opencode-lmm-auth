@@ -131,3 +131,45 @@ test('response loss and plugin restart recover the same rotation; usage reports 
     await rm(directory, {recursive: true, force: true});
   }
 });
+
+
+test('native Magpie provider hook preserves SDK capabilities, endpoint and cache prices', async () => {
+  const originalFetch = globalThis.fetch;
+  const upstream = 'future-native-metadata-model';
+  const id = 'lmm:ZGVmYXVsdA:' + Buffer.from(upstream).toString('base64url');
+  globalThis.fetch = async input => {
+    const url = String(input);
+    if (url.startsWith('https://models.dev/')) return Response.json({});
+    if (url === issuer + '/api/oauth2/application') return Response.json({
+      contract: 'lmm.application-status.v1', client_id: 'lmm-magpie', application: 'magpie',
+      installation_id: installation, grant_id: grant, scopes: ['models:invoke'],
+      access_expires_at: Math.floor(Date.now() / 1000) + 3600,
+    });
+    if (url === issuer + '/api/oauth2/catalog') return Response.json({
+      schema_version: 1, resource: issuer + '/api/oauth2', models: [{
+        id, upstream_model: upstream, group_id: 'ZGVmYXVsdA', group: 'default', name: upstream,
+        apis: ['openai-completions'], pricing: {currency: 'USD', unit: 'million_tokens'},
+        native_cost: {input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2},
+        metadata: {context_window: 64000, max_input_tokens: null, max_output_tokens: 8000,
+          input_modalities: ['text', 'image'], output_modalities: ['text'],
+          reasoning: true, tool_call: true, source: 'server'},
+      }],
+    });
+    throw Error('Unexpected metadata test request');
+  };
+  try {
+    const plugin = await Plugin(host, {issuer});
+    const models = await plugin.provider.models({}, {auth: auth()});
+    assert.deepEqual(Object.keys(models), [id]);
+    const model = models[id]!;
+    assert.equal(model.providerID, 'lmm-magpie');
+    assert.equal(model.api.id, id);
+    assert.equal(model.api.url, issuer + '/v1');
+    assert.equal(model.api.npm, '@ai-sdk/openai-compatible');
+    assert.equal(model.capabilities.reasoning, true);
+    assert.equal(model.capabilities.input.image, true);
+    assert.equal(model.capabilities.toolcall, true);
+    assert.deepEqual(model.cost.cache, {read: 0.1, write: 0.2});
+    assert.deepEqual(model.limit, {context: 64000, output: 8000});
+  } finally { globalThis.fetch = originalFetch; }
+});

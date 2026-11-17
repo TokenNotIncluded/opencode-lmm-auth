@@ -143,7 +143,10 @@ const MagpieLmmPlugin = async (input: any, options?: { issuer?: string }) => {
       if (!context?.auth) return {};
       const auth = await fresh(async () => context.auth!);
       const admitted = await catalog(auth);
-      return Object.fromEntries(Object.entries(admitted.models).map(([id, model]: [string, any]) => [id, {id, name: model.name, provider: {npm: model.api.npm, api: `${http.issuer}/v1`}, limit: model.limit, tool_call: model.capabilities.toolcall, reasoning: model.capabilities.reasoning, attachment: model.capabilities.attachment, temperature: model.capabilities.temperature, options: model.options, cost: {input: model.cost.input, output: model.cost.output, cache_read: model.cost.cache.read, cache_write: model.cost.cache.write}}]));
+      // The hook runs after the host converts flat configuration to native models.
+      return Object.fromEntries(Object.entries(admitted.models).map(([id, model]) => [
+        id, {...model, providerID: PROVIDER},
+      ]));
     }},
   };
 };

@@ -193,7 +193,8 @@ const LmmOAuthPlugin = async (input, options) => {
                             hostReferenceCosts.set(id, cost);
                     }
                     const admitted = await loadCatalog(fresh, profileModels, hostReferenceCosts);
-                    return toProviderModels(admitted.models);
+                    // provider.models receives native SDK models after config normalization.
+                    return admitted.models;
                 }
                 catch (error) {
                     if (error instanceof LmmError && error.code === 'unauthorized') {
