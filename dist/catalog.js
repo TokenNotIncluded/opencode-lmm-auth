@@ -1,12 +1,12 @@
-import { parseMetadata, contextBudget, textOutput } from './server-metadata.js';
+import { parseMetadata } from './server-metadata.js';
 import { canonicalId, nonnegative, object, requireValue, text } from './protocol.js';
+import { peekModelsDev } from './models-dev-cache.js';
 export function logCatalogDiagnostics(diagnostics, logger = console, previousFingerprint) {
     const fingerprint = JSON.stringify(diagnostics);
     if (fingerprint === previousFingerprint)
         return fingerprint;
-    for (const group of diagnostics.groups) {
+    for (const group of diagnostics.groups)
         logger.info(`[LMM catalog] group=${group.group} admitted=${group.admitted}/${group.total} filtered=${group.filtered.map(item => `${item.reason}:${item.count}`).join(',') || 'none'}`);
-    }
     return fingerprint;
 }
 const protocols = {
@@ -14,28 +14,26 @@ const protocols = {
     'openai-responses': { npm: '@ai-sdk/openai', path: '/v1/responses' },
     'anthropic-messages': { npm: '@ai-sdk/anthropic', path: '/v1/messages' },
 };
-/** Read host/vendor reference rates without treating them as an LMM quote. */
+const finiteRate = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+const positiveLimit = (value) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+/** Host reference rates are estimates, never an account quote. */
 export function normalizeReferenceCost(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value))
         return undefined;
     const row = value;
-    const cache = typeof row.cache === 'object' && row.cache !== null && !Array.isArray(row.cache)
-        ? row.cache : {};
-    const input = row.input;
-    const output = row.output;
-    const read = row.cache_read ?? row.cacheRead ?? cache.read;
-    const write = row.cache_write ?? row.cacheWrite ?? cache.write;
-    if (![input, output, read, write].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0))
+    if (!finiteRate(row.input) || !finiteRate(row.output))
         return undefined;
-    if (![input, output, read, write].some(value => value > 0))
-        return undefined;
-    return { input: input, output: output, cache: { read: read, write: write } };
+    const read = row.cache_read ?? row.cacheRead ?? row.cache?.read;
+    const write = row.cache_write ?? row.cacheWrite ?? row.cache?.write;
+    return { input: row.input, output: row.output, cache: { read: finiteRate(read) ? read : 0, write: finiteRate(write) ? write : 0 } };
 }
-/** Server metadata takes priority; old catalogs retain exact-profile compatibility. */
-export function admitCatalog(value, provider, issuer, scope, allowedProfiles, referenceCosts = new Map()) {
-    requireValue(value.schema_version === 1 && value.resource === `${issuer}/api/oauth2` && Array.isArray(value.models) && value.models.length <= 10000);
+/** The authorized catalog determines availability. Metadata enriches, never whitelists it. */
+export function admitCatalog(value, provider, issuer, scope, metadataCatalog = peekModelsDev(), referenceCosts = new Map()) {
+    requireValue(value.schema_version === 1 && value.resource === `${issuer}/api/oauth2` && Array.isArray(value.models) && value.models.length <= 20_000);
     const models = Object.create(null);
     const routes = new Map();
+    const seen = new Set();
+    const scopes = new Set(scope.split(' '));
     const counts = new Map();
     const reject = (group, reason) => {
         const count = counts.get(group);
@@ -46,81 +44,99 @@ export function admitCatalog(value, provider, issuer, scope, allowedProfiles, re
         const upstream = text(item.upstream_model);
         const group = canonicalId(item.group_id);
         const id = text(item.id, 4096);
-        requireValue(id === `lmm:${group}:${Buffer.from(upstream).toString('base64url')}` && !routes.has(id));
-        requireValue(scope.split(' ').includes(`group:${group}`));
+        requireValue(id === `lmm:${group}:${Buffer.from(upstream).toString('base64url')}` && !seen.has(id));
+        seen.add(id);
+        requireValue(scopes.has(`group:${group}`));
         const count = counts.get(group) ?? { total: 0, admitted: 0, filtered: new Map() };
         count.total++;
         counts.set(group, count);
-        const metadata = parseMetadata(item.metadata);
-        let profile = provider.models[upstream];
-        if (metadata) {
-            const context = contextBudget(metadata);
-            const api = Array.isArray(item.apis) ? item.apis.find((a) => typeof a === 'string' && a in protocols) : undefined;
-            if (!context || !metadata.max_output_tokens || !textOutput(metadata) || !api) {
-                reject(group, 'missing_server_metadata');
-                continue;
-            }
-            const modalities = { text: true, image: false, audio: false, video: false, pdf: false };
-            profile = { id: upstream, providerID: 'lmm', name: text(item.name), status: 'active', headers: {},
-                api: { id, url: `${issuer}/v1`, npm: protocols[api].npm },
-                limit: { context, output: Math.min(context, metadata.max_output_tokens) },
-                capabilities: { toolcall: metadata.tool_call === true, reasoning: false, attachment: false,
-                    temperature: false, input: modalities, output: modalities },
-                options: { lmmApi: api, lmmMetadata: metadata }, cost: { input: 0, output: 0, cache: { read: 0, write: 0 } } };
-        }
-        if (!profile || (!metadata && !allowedProfiles.has(upstream))) {
-            reject(group, 'missing_profile');
-            continue;
-        }
-        const configured = typeof profile.options.lmmApi === 'string' ? profile.options.lmmApi : '';
-        const supported = Array.isArray(profile.options.lmmSupportedApis) ? profile.options.lmmSupportedApis : [configured];
-        const api = supported.find((candidate) => typeof candidate === 'string' && candidate in protocols && Array.isArray(item.apis) && item.apis.includes(candidate)) ?? configured;
-        const protocol = protocols[api];
-        if (!protocol || !Array.isArray(item.apis) || !item.apis.includes(api)) {
+        const server = parseMetadata(item.metadata);
+        const reference = metadataCatalog.resolve(upstream);
+        const profile = provider.models[upstream];
+        const offered = Array.isArray(item.apis) ? item.apis.filter((api) => typeof api === 'string' && api in protocols) : [];
+        const preferred = profile?.options?.lmmApi;
+        const api = typeof preferred === 'string' && offered.includes(preferred) ? preferred : offered[0];
+        if (!api) {
             reject(group, 'unsupported_protocol');
             continue;
         }
+        const input = server?.input_modalities ?? reference?.modalities.input;
+        const output = server?.output_modalities ?? reference?.modalities.output;
+        if ((reference?.type && reference.type !== 'chat') || (input && !input.includes('text')) || (output && !output.includes('text'))) {
+            reject(group, 'unsupported_modality');
+            continue;
+        }
+        const context = server?.context_window ?? server?.max_input_tokens ?? profile?.limit?.context ?? reference?.limit.context ?? 32768;
+        const inputLimit = server?.max_input_tokens ?? reference?.limit.input;
+        const contextWindow = inputLimit ? Math.min(context, inputLimit) : context;
+        const outputLimit = server?.max_output_tokens ?? profile?.limit?.output ?? reference?.limit.output ?? 4096;
+        requireValue(positiveLimit(contextWindow) && positiveLimit(outputLimit));
         const pricing = object(item.pricing);
-        const nativePricing = pricing.currency === 'USD' && pricing.unit === 'million_tokens' &&
-            (pricing.price_basis === 'configured_base_rates' || pricing.price_basis === 'dynamic_estimate' || pricing.price_basis === 'effective_user_rates') && item.native_cost !== null;
-        const variablePricing = pricing.currency === 'USD' && item.native_cost === null &&
-            (pricing.unit === 'expression' || pricing.price_basis === 'tiered_expression');
-        // Core currently publishes token rates in pricing, but leaves cache_write
-        // unknown and native_cost null. Do not turn the missing rate into zero.
-        const incompleteTokenPricing = pricing.currency === 'USD' && item.native_cost === null && pricing.unit === 'million_tokens' &&
-            (pricing.price_basis === 'configured_base_rates' || pricing.price_basis === 'effective_user_rates');
-        if (!nativePricing && !variablePricing && !incompleteTokenPricing) {
-            reject(group, 'unsupported_pricing');
-            continue;
+        const native = item.native_cost === undefined || item.native_cost === null ? undefined : object(item.native_cost);
+        if (native) {
+            requireValue(pricing.currency === 'USD' && pricing.unit === 'million_tokens', 'LMM native cost has incompatible units.');
+            for (const key of ['input', 'output', 'cacheRead', 'cacheWrite'])
+                nonnegative(native[key]);
         }
-        const reference = !metadata && (variablePricing || incompleteTokenPricing) ? referenceCosts.get(upstream) : undefined;
-        // OpenCode requires numeric cost fields. A reference estimate lets us list
-        // an incomplete or dynamic LMM route; the label/options distinguish it from
-        // the account's actual server price.
-        if ((variablePricing || incompleteTokenPricing) && !reference) {
-            reject(group, 'missing_reference_price');
-            continue;
-        }
-        const native = nativePricing ? object(item.native_cost) : undefined;
-        const modelCost = nativePricing
-            ? { input: nonnegative(native.input), output: nonnegative(native.output), cache: { read: nonnegative(native.cacheRead), write: nonnegative(native.cacheWrite) } }
-            : reference;
-        const options = {
-            ...profile.options, lmmPricing: pricing, lmmUpstreamModel: upstream,
-            ...((variablePricing || incompleteTokenPricing) ? { lmmPricingBasis: pricing.price_basis, lmmReferenceCost: true } : {}),
+        const tokenRates = pricing.currency === 'USD' && pricing.unit === 'million_tokens';
+        const supplied = referenceCosts.get(upstream);
+        const rates = reference?.cost;
+        const unknownCosts = [];
+        let usesReference = false;
+        const rate = (field, pricingField, referenceRate) => {
+            if (native)
+                return native[field];
+            if (tokenRates && finiteRate(pricing[pricingField]))
+                return pricing[pricingField];
+            if (finiteRate(referenceRate)) {
+                usesReference = true;
+                return referenceRate;
+            }
+            unknownCosts.push(pricingField);
+            // These hosts require numeric estimates. The visible label and options
+            // explicitly mark absent estimates; this value never controls LMM billing.
+            return 0;
         };
-        const ratio = (key) => typeof pricing[key] === 'number' && Number.isFinite(pricing[key]) ? String(pricing[key]) : 'unknown';
-        const metadataLabel = metadata ? ` · ${upstream} · group ×${ratio('group_multiplier')} · trust ×${ratio('trust_multiplier')}` : '';
-        const pricingLabel = variablePricing ? ' · LMM variable billing' : incompleteTokenPricing ? (upstream === 'claude-haiku-5-5' ? ' · base-tier reference estimate' : ' · reference estimate') : '';
-        models[id] = { ...profile, id, providerID: 'lmm', name: `${text(item.name)} [${text(item.group)}]${metadataLabel}${pricingLabel}`, api: { id, url: `${issuer}/v1`, npm: protocol.npm }, cost: modelCost, headers: {}, options };
-        routes.set(id, { upstream, group, path: protocol.path });
+        const modelCost = {
+            input: rate('input', 'input', supplied?.input ?? rates?.input),
+            output: rate('output', 'output', supplied?.output ?? rates?.output),
+            cache: {
+                read: rate('cacheRead', 'cache_read', supplied?.cache.read ?? rates?.cache_read),
+                write: rate('cacheWrite', 'cache_write', supplied?.cache.write ?? rates?.cache_write),
+            },
+        };
+        const modalities = (values, fallback) => Object.fromEntries(['text', 'image', 'audio', 'video', 'pdf'].map(kind => [kind, values ? values.includes(kind) : fallback?.[kind] ?? kind === 'text']));
+        const inputModes = modalities(input, profile?.capabilities.input);
+        const outputModes = modalities(output, profile?.capabilities.output);
+        const unknownMetadata = !server && !reference && !profile;
+        const pricingLabel = unknownCosts.length ? ' · cost estimate incomplete (server billed)' : usesReference ? ' · reference estimate (server billed)' : '';
+        const metadataLabel = unknownMetadata ? ' · metadata unavailable' : '';
+        models[id] = {
+            id, providerID: 'lmm', name: `${text(item.name)} [${text(item.group)}]${metadataLabel}${pricingLabel}`,
+            status: 'active', api: { id, url: `${issuer}/v1`, npm: protocols[api].npm }, headers: {},
+            limit: { context: contextWindow, output: Math.min(contextWindow, outputLimit) },
+            capabilities: {
+                toolcall: server?.tool_call ?? profile?.capabilities.toolcall ?? reference?.tool_call ?? false,
+                reasoning: server?.reasoning ?? profile?.capabilities.reasoning ?? reference?.reasoning ?? false,
+                attachment: Object.entries(inputModes).some(([kind, enabled]) => kind !== 'text' && enabled),
+                temperature: profile?.capabilities.temperature ?? reference?.temperature ?? false,
+                input: inputModes, output: outputModes,
+            },
+            cost: modelCost,
+            options: {
+                ...profile?.options, lmmApi: api, lmmUpstreamModel: upstream, lmmPricing: pricing,
+                ...(server ? { lmmMetadata: server } : {}),
+                lmmMetadataSource: server?.source || reference?.source || (profile ? 'user configuration' : 'unknown'),
+                lmmMetadataStatus: unknownMetadata ? 'unknown' : 'available',
+                lmmPricingBasis: pricing.price_basis, lmmReferenceCost: usesReference,
+                lmmUnknownCostFields: unknownCosts,
+            },
+        };
+        routes.set(id, { upstream, group, path: protocols[api].path });
         count.admitted++;
     }
-    const groups = [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([group, count], index) => ({
-        // Logs use an ordinal and aggregate counts, never the raw group ID or name.
-        group: `group-${index + 1}`,
-        total: count.total,
-        admitted: count.admitted,
+    const groups = [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, count], index) => ({
+        group: `group-${index + 1}`, total: count.total, admitted: count.admitted,
         filtered: [...count.filtered.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([reason, total]) => ({ reason, count: total })),
     }));
     return { models, routes, diagnostics: { groups } };

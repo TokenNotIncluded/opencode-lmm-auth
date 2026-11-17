@@ -5,8 +5,7 @@ import { listenCallback } from './callback.js';
 import { admitCatalog, prepareRelay } from './catalog.js';
 import { LmmHttp } from './http.js';
 import { MagpieJournal } from './magpie-journal.js';
-import { builtinProfiles } from './metadata.js';
-import { referenceCosts } from './reference-costs.js';
+import { loadModelsDev } from './models-dev-cache.js';
 import { accessToken, APPLICATION_SCOPES, parseScope, requireValue, text } from './protocol.js';
 const CLIENT = 'lmm-magpie';
 const PROVIDER = 'lmm-magpie';
@@ -62,11 +61,10 @@ const MagpieLmmPlugin = async (input, options) => {
         await status(auth);
         return auth;
     };
-    const profileModels = Object.fromEntries(Object.entries(builtinProfiles).map(([id, p]) => [id, {
-            id, providerID: PROVIDER, name: p.name ?? id, status: 'active', headers: {}, api: { id, url: `${http.issuer}/v1`, npm: '@ai-sdk/openai-compatible' }, cost: { input: 0, output: 0, cache: { read: 0, write: 0 } }, options: p.options ?? {}, limit: p.limit,
-            capabilities: { toolcall: p.tool_call, reasoning: p.reasoning, attachment: p.attachment, temperature: p.temperature, input: Object.fromEntries(['text', 'audio', 'image', 'video', 'pdf'].map(k => [k, p.modalities?.input?.includes(k) ?? false])), output: Object.fromEntries(['text', 'audio', 'image', 'video', 'pdf'].map(k => [k, p.modalities?.output?.includes(k) ?? false])) },
-        }]));
-    const catalog = async (auth) => admitCatalog(await http.bearer('/api/oauth2/catalog', auth.access), { models: profileModels }, http.issuer, unpack(auth, http).scope, new Set(Object.keys(profileModels)), new Map(Object.entries(referenceCosts)));
+    const catalog = async (auth) => {
+        const [value, metadata] = await Promise.all([http.bearer('/api/oauth2/catalog', auth.access), loadModelsDev()]);
+        return admitCatalog(value, { models: {} }, http.issuer, unpack(auth, http).scope, metadata);
+    };
     return {
         config: async (config) => {
             config.provider ??= {};

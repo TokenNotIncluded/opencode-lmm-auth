@@ -60,7 +60,9 @@ opencode auth login lmm --method oauth
 
 ## 模型与安全
 
-内置 models.dev 的 135 个明确能力配置。展示授权目录中有精确能力资料的模型；静态价格使用 LMM 账户实际目录价格，动态/表达式计费的模型使用内置精确 models.dev 供应商参考价（宿主提供的精确价格会覆盖它），并明确标注“LMM 动态计费”，参考价不是 LMM 报价。未知、按请求计费且没有安全参考价的模型不会伪装成免费模型。Magpie/V2 传输实现支持 OpenAI Chat、Responses 和 Anthropic Messages，每个模型选择对应 SDK，调用时恢复真实模型名并附带授权计费组；这些目录配置不会启用旧版推理。Magpie 会在加载请求传输前调用按账号的模型目录钩子。
+模型列表以 LMM 账号授权目录为准，不再维护固定模型白名单。插件从 `https://models.dev/api.json?type=all` 自动获取元数据，默认缓存 24 小时，并支持 ETag 更新、原子写入和断网复用旧缓存。通过大小写、分隔符、供应商前缀、日期别名和少量拼写差异进行模糊匹配；有歧义就保留未知信息，不改变实际请求的模型 ID，也不因此隐藏模型。服务端元数据和账号价格优先。
+
+缺少元数据的模型使用保守通用额度并标明未知；宿主不支持的协议或明确非对话类型仍可在原始目录中查看。缺少价格时保留模型，宿主所需的数值占位会明确标为“cost estimate incomplete (server billed)”，不代表免费，也不参与服务端扣费。已知账号价格不会被参考价覆盖。`LMM_MODELS_DEV_CACHE` 可指定缓存文件，`LMM_MODELS_DEV_TTL_MS` 可指定缓存周期；公开元数据请求不会携带账号凭据。Magpie/V2 支持 OpenAI Chat、Responses 和 Anthropic Messages，并按账号目录选择协议。
 
 OAuth 登录实现 PKCE S256、issuer 绑定发现和回调 state/issuer 校验。刷新轮换、流式输出和取消属于 Magpie/V2 集成实现，旧版 1.18.34 不提供这些传输功能；本轮真实 Magpie 与 V2 应用验证均为 **NOT_RUN（未运行）**。OpenCode 保存原生凭据，Magpie 保存账号范围的 `plugin-auth.json`，插件不再写第二份凭据。V2 通过官方 integration connection API 获取当前凭据；旧版 OpenCode 1.18.34 读取 `$XDG_DATA_HOME/opencode/auth.json`（默认 `~/.local/share/opencode/auth.json`）；Magpie 模式下则由宿主传入当前账号。
 

@@ -2,8 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Model, Provider } from '@opencode-ai/sdk';
 import { admitCatalog, logCatalogDiagnostics, normalizeReferenceCost, prepareRelay } from '../src/catalog.ts';
-import { builtinProfiles } from '../src/metadata.ts';
-import { referenceCosts } from '../src/reference-costs.ts';
+import { ModelsDevCatalog } from '../src/models-dev-cache.ts';
 
 const issuer = 'https://api.lmm.best';
 const group = 'ZGVmYXVsdA';
@@ -14,143 +13,91 @@ const profile: Model = {id:upstream, providerID:'lmm', name:'Model', status:'act
 const provider: Provider = {id:'lmm', name:'LMM', source:'config', env:[], options:{}, models:{[upstream]:profile}};
 const item = {id, upstream_model:upstream, group_id:group, group:'default', name:'Model', apis:['openai-completions'], pricing:{currency:'USD', unit:'million_tokens', price_basis:'configured_base_rates'}, native_cost:{input:1, output:2, cacheRead:0.1, cacheWrite:0.2}};
 const catalog = (entry: any = item) => ({schema_version:1, resource:issuer+'/api/oauth2', models:[entry]});
-const admit = (entry = item) => admitCatalog(catalog(entry), provider, issuer, `group:${group}`, new Set([upstream]));
+const empty = new ModelsDevCatalog();
+const admit = (entry: any = item) => admitCatalog(catalog(entry), provider, issuer, `group:${group}`, empty);
+const metadata = new ModelsDevCatalog({vendor:{id:'vendor',models:{'future-model-7.2':{
+ id:'future-model-7.2', name:'Future Model 7.2',canonical_model_id:'vendor/future-model-7.2',
+ limit:{context:131072,input:120000,output:8192},modalities:{input:['text','image'],output:['text']},
+ tool_call:true,reasoning:true,temperature:true,cost:{input:3,output:5,cache_read:0.3}
+}}}});
+const route = (name: string, groupId = group) => ({...item,id:`lmm:${groupId}:${Buffer.from(name).toString('base64url')}`,upstream_model:name,group_id:groupId});
 
-test('new exact profiles still require an authorized catalog entry and compatible protocol', () => {
- for (const [name, api, context, output] of [['kimi-k3', 'openai-completions', 1048576, 1048576], ['claude-haiku-5-5', 'anthropic-messages', 1000000, 128000]] as const) {
-  const metadata = builtinProfiles[name]!;
-  assert.deepEqual(metadata.limit, {context, output});
-  assert.equal(metadata.tool_call, true);
-  assert.equal(metadata.options?.lmmMetadataSource, `https://models.dev/${name === 'kimi-k3' ? 'moonshotai' : 'anthropic'}#${name}`);
-  const modelId = `lmm:${group}:${Buffer.from(name).toString('base64url')}`;
-  const entry = {...item, id:modelId, upstream_model:name, apis:[api]};
-  const model = {...profile, id:name, limit:metadata.limit!, options:metadata.options!};
-  const source = {...provider, models:{[name]:model}};
-  const admitted = admitCatalog(catalog(entry), source, issuer, `group:${group}`, new Set([name]));
-  assert.equal(admitted.routes.get(modelId)?.upstream, name);
-  assert.equal(admitted.models[modelId].cost.input, 1);
-  assert.equal(admitCatalog(catalog(entry), source, issuer, `group:${group}`, new Set()).routes.size, 0);
-  assert.equal(admitCatalog(catalog({...entry, apis:[]}), source, issuer, `group:${group}`, new Set([name])).routes.size, 0);
-  assert.throws(() => admitCatalog(catalog(entry), source, issuer, 'group:b3RoZXI', new Set([name])));
+test('unknown models and missing prices remain available in every authorized group', () => {
+ const other = Buffer.from('secondary').toString('base64url');
+ const entries = [route('unlisted-future-99'),route('unlisted-future-99',other),route('another-unlisted')].map(entry=>({...entry,native_cost:null}));
+ const result=admitCatalog({...catalog(),models:entries},{...provider,models:{}},issuer,`group:${group} group:${other}`,empty);
+ assert.deepEqual([...result.routes.keys()],entries.map(entry=>entry.id));
+ for(const entry of entries){
+  assert.equal(result.routes.get(entry.id)?.upstream,entry.upstream_model);
+  assert.equal(result.models[entry.id]!.options.lmmMetadataStatus,'unknown');
+  assert.deepEqual(result.models[entry.id]!.options.lmmUnknownCostFields,['input','output','cache_read','cache_write']);
+  assert.match(result.models[entry.id]!.name,/cost estimate incomplete.*server billed/);
  }
 });
 
-test('bundled exact profiles and costs admit Core null-cost models only with matching protocol and USD', () => {
- for (const name of ['kimi-k3', 'claude-haiku-5-5'] as const) {
-  const model = builtinProfiles[name]!;
-  const api = model.options!.lmmApi as string;
-  const modelId = `lmm:${group}:${Buffer.from(name).toString('base64url')}`;
-  const source = {...provider, models:{[name]: {...profile, id:name, limit:model.limit!, options:model.options!}}};
-  const entry = {...item, id:modelId, upstream_model:name, apis:[api], native_cost:null, pricing:{currency:'USD', unit:'million_tokens', price_basis:'effective_user_rates', cache_write:null}};
-  const admitted = admitCatalog(catalog(entry), source, issuer, `group:${group}`, new Set([name]), new Map(Object.entries(referenceCosts)));
-  assert.equal(admitted.routes.get(modelId)?.upstream, name);
-  assert.equal(admitted.models[modelId].options.lmmReferenceCost, true);
-  assert.equal(admitted.models[modelId].name.includes('reference estimate'), true);
-  assert.equal(admitCatalog(catalog({...entry, apis:['unsupported-protocol']}), source, issuer, `group:${group}`, new Set([name]), new Map(Object.entries(referenceCosts))).routes.size, 0);
-  assert.equal(admitCatalog(catalog({...entry, pricing:{...entry.pricing, currency:'EUR'}}), source, issuer, `group:${group}`, new Set([name]), new Map(Object.entries(referenceCosts))).routes.size, 0);
- }
+test('fuzzy reference enriches limits and capabilities while retaining the exact wire model', () => {
+ const entry={...route('VENDOR/FUTURE MODEL 7.2'),native_cost:null};
+ const result=admitCatalog(catalog(entry),{...provider,models:{}},issuer,`group:${group}`,metadata);
+ const model=result.models[entry.id]!;
+ assert.equal(model.limit.context,120000);
+ assert.equal(model.limit.output,8192);
+ assert.equal(model.capabilities.toolcall,true);
+ assert.equal(model.capabilities.input.image,true);
+ assert.equal(model.capabilities.reasoning,true);
+ assert.equal(model.cost.input,3);
+ assert.deepEqual(model.options.lmmUnknownCostFields,['cache_write']);
+ assert.equal(result.routes.get(entry.id)?.upstream,'VENDOR/FUTURE MODEL 7.2');
 });
 
-test('catalog keeps eligible groups when another group has no exact profile or reference cost', () => {
- const secondGroup = Buffer.from('secondary').toString('base64url');
- const known = {...item, native_cost:null, pricing:{currency:'USD', unit:'million_tokens', price_basis:'effective_user_rates', cache_write:null}};
- const missingProfile = {...known, id:`lmm:${secondGroup}:${Buffer.from('unknown-model').toString('base64url')}`, group_id:secondGroup, upstream_model:'unknown-model'};
- const models = [known, missingProfile];
- const allowed = admitCatalog({schema_version:1, resource:issuer+'/api/oauth2', models}, provider, issuer, `group:${group} group:${secondGroup}`, new Set([upstream]), new Map([[upstream, referenceCosts['kimi-k3']!]]));
- assert.equal(allowed.routes.size, 1);
- assert.equal(allowed.routes.has(id), true);
- assert.equal(allowed.models[id].name.includes('reference estimate'), true);
- assert.equal(allowed.routes.has(missingProfile.id), false);
- const noPrice = admitCatalog(catalog(known), provider, issuer, `group:${group}`, new Set([upstream]), new Map());
- assert.equal(noPrice.routes.size, 0, 'only the group without a reference estimate is filtered');
+test('server fields win and incomplete metadata is supplemented independently', () => {
+ const server={context_window:64000,max_input_tokens:null,max_output_tokens:null,input_modalities:null,output_modalities:null,reasoning:false,tool_call:false,source:'server'};
+ const entry={...route('future-model-7.2'),metadata:server};
+ const result=admitCatalog(catalog(entry),{...provider,models:{}},issuer,`group:${group}`,metadata);
+ assert.deepEqual(result.models[entry.id]!.limit,{context:64000,output:8192});
+ assert.equal(result.models[entry.id]!.capabilities.reasoning,false);
+ assert.equal(result.models[entry.id]!.capabilities.toolcall,false);
+ assert.equal(result.models[entry.id]!.cost.input,1);
+ assert.equal(result.models[entry.id]!.options.lmmMetadataSource,'server');
+ const incomplete=admit({...item,metadata:{...server,context_window:null},native_cost:null});
+ assert.equal(incomplete.routes.size,1);
+ assert.throws(()=>admit({...item,metadata:{...server,max_output_tokens:-1}}));
 });
 
-test('Core catalog keeps priced profiles across groups and filters all profiles lacking reference prices', () => {
- const secondGroup = Buffer.from('secondary').toString('base64url');
- const missingPrices = Object.keys(builtinProfiles).filter(name => !referenceCosts[name]);
- assert.equal(missingPrices.length, 11);
- const sourceModels: Record<string, Model> = {};
- const makeModel = (name: string): Model => {
-  const metadata = builtinProfiles[name]!;
-  const boolModalities = (values: unknown) => Object.fromEntries(['text','audio','image','video','pdf'].map(key => [key, Array.isArray(values) && values.includes(key)])) as typeof modalities;
-  const model: Model = {
-   ...profile, id:name, name:metadata.name!, limit:metadata.limit!, options:metadata.options!,
-   capabilities:{toolcall:metadata.tool_call!, reasoning:metadata.reasoning!, attachment:metadata.attachment!, temperature:metadata.temperature!, input:boolModalities(metadata.modalities?.input), output:boolModalities(metadata.modalities?.output)},
-  };
-  sourceModels[name] = model;
-  return model;
- };
- const first = 'kimi-k3';
- const second = 'claude-haiku-5-5';
- makeModel(first); makeModel(second);
- for (const name of missingPrices) makeModel(name);
- const missingPrice = missingPrices[0]!;
- const makeEntry = (name: string, groupId: string) => ({
-  ...item, id:`lmm:${groupId}:${Buffer.from(name).toString('base64url')}`, group_id:groupId, upstream_model:name,
-  apis:[builtinProfiles[name]!.options!.lmmApi], native_cost:null,
-  pricing:{currency:'USD', unit:'million_tokens', price_basis:'effective_user_rates', cache_write:null},
- });
- const routes = [makeEntry(first, group), makeEntry(first, secondGroup), makeEntry(second, group), makeEntry(missingPrice, group)];
- const admitted = admitCatalog({schema_version:1, resource:issuer+'/api/oauth2', models:routes}, {...provider, models:sourceModels}, issuer,
-  `group:${group} group:${secondGroup}`, new Set(Object.keys(sourceModels)), new Map(Object.entries(referenceCosts)));
- assert.deepEqual([...admitted.routes.keys()], routes.slice(0, 3).map(route => route.id));
- assert.equal(admitted.routes.get(routes[0]!.id)?.upstream, first);
- assert.equal(admitted.routes.get(routes[1]!.id)?.upstream, first);
- assert.notEqual(routes[0]!.id, routes[1]!.id);
- assert.equal(admitted.routes.get(routes[2]!.id)?.upstream, second);
- assert.equal(admitted.routes.has(routes[3]!.id), false);
- assert.equal(missingPrices.length, 11, 'eleven builtin profiles lack bundled reference estimates');
- assert.equal(missingPrices.every(name => !referenceCosts[name]), true);
+test('account prices retain known fields and reference prices fill only missing fields', () => {
+ const entry={...route('future-model-7.2'),native_cost:null,pricing:{...item.pricing,input:1,output:2,cache_read:0.1,cache_write:null}};
+ const result=admitCatalog(catalog(entry),{...provider,models:{}},issuer,`group:${group}`,metadata);
+ assert.deepEqual(result.models[entry.id]!.cost,{input:1,output:2,cache:{read:0.1,write:0}});
+ assert.deepEqual(result.models[entry.id]!.options.lmmUnknownCostFields,['cache_write']);
+ assert.equal(result.models[entry.id]!.options.lmmReferenceCost,false);
+ const dynamic=admitCatalog(catalog({...entry,pricing:{...entry.pricing,unit:'expression'}}),{...provider,models:{}},issuer,`group:${group}`,metadata);
+ assert.equal(dynamic.models[entry.id]!.cost.input,3);
+ assert.equal(dynamic.models[entry.id]!.options.lmmReferenceCost,true);
 });
 
-test('catalog generates distinct group model id and preserves exact supplied capabilities', () => {
- const result = admit();
- assert.equal(result.models[id].api.id, id);
- assert.equal(result.models[id].api.npm, '@ai-sdk/openai-compatible');
- assert.deepEqual(result.models[id].limit, profile.limit);
- assert.equal(result.models[id].cost.input, 1);
- assert.equal(result.routes.get(id)?.upstream, upstream);
+test('unknown estimates and explicit free reference rates are distinguishable', () => {
+ assert.deepEqual(normalizeReferenceCost({input:0,output:0,cache_read:0,cache_write:0}),{input:0,output:0,cache:{read:0,write:0}});
+ assert.equal(normalizeReferenceCost({input:-1,output:0}),undefined);
+ const result=admit({...item,native_cost:null,pricing:{currency:'EUR',unit:'request',price_basis:'per_request'}});
+ assert.equal(result.routes.size,1);
+ assert.match(result.models[id]!.name,/cost estimate incomplete/);
+ assert.throws(()=>admit({...item,native_cost:{...item.native_cost,input:-1}}));
 });
 
-test('catalog refuses unknown prices and unverified models, and fails on scope mismatch', () => {
- assert.equal(Object.keys(admit({...item, native_cost:null as never}).models).length, 0);
- assert.equal(Object.keys(admit({...item, pricing:{...item.pricing, unit:'expression'}}).models).length, 0);
- assert.equal(Object.keys(admitCatalog(catalog(), provider, issuer, `group:${group}`, new Set()).models).length, 0);
- assert.throws(() => admitCatalog(catalog(), provider, issuer, 'group:b3RoZXI', new Set([upstream])));
- assert.throws(() => admit({...item, id:'lmm:bad:bad'}));
+test('only unsupported protocols and explicit non-text capabilities are filtered', () => {
+ assert.equal(admit({...item,apis:['unsupported']}).routes.size,0);
+ const server={context_window:8000,max_input_tokens:null,max_output_tokens:1000,input_modalities:['text'],output_modalities:['image'],reasoning:false,tool_call:false,source:'server'};
+ assert.equal(admit({...item,metadata:server}).routes.size,0);
+ assert.equal(admit({...item,metadata:{...server,output_modalities:['text','audio']}}).routes.size,1);
+ assert.throws(()=>admitCatalog(catalog(),provider,issuer,'group:b3RoZXI',empty));
+ assert.throws(()=>admit({...item,id:'lmm:bad:bad'}));
+ assert.throws(()=>admitCatalog({...catalog(),models:[{...item,apis:[]},{...item,apis:[]}]},provider,issuer,`group:${group}`,empty));
 });
 
-test('catalog admits dynamic billing with an explicit host reference cost and labels it', () => {
- const dynamic = {...item, native_cost:null, pricing:{...item.pricing, unit:'expression', price_basis:'tiered_expression'}};
- const result = admitCatalog(catalog(dynamic), provider, issuer, `group:${group}`, new Set([upstream]), new Map([[upstream, {input:3, output:4, cache:{read:0.5, write:0.75}}]]));
- assert.equal(Object.keys(result.models).length, 1);
- assert.equal(result.models[id].cost.input, 3);
- assert.match(result.models[id].name, /LMM variable billing/);
- assert.equal(result.models[id].options.lmmPricingBasis, 'tiered_expression');
- assert.equal(result.models[id].options.lmmReferenceCost, true);
- assert.equal(result.routes.get(id)?.upstream, upstream);
-});
-
-test('Core catalog token pricing with missing cache write uses labeled reference only', () => {
- const cost = {input:3, output:4, cache:{read:0.5, write:0.75}};
- for (const basis of ['configured_base_rates', 'effective_user_rates']) {
-  const entry = {...item, native_cost:null, pricing:{currency:'USD', unit:'million_tokens', price_basis:basis, group_multiplier:1, trust_multiplier:null, input:1, output:2, cache_read:0.1, cache_write:null, request:null, final_cost_depends_on_usage:true, updated_at:123}};
-  const without = admitCatalog(catalog(entry), provider, issuer, `group:${group}`, new Set([upstream]));
-  assert.equal(without.routes.size, 0);
-  const result = admitCatalog(catalog(entry), provider, issuer, `group:${group}`, new Set([upstream]), new Map([[upstream, cost]]));
-  assert.deepEqual(result.models[id].cost, cost);
-  assert.match(result.models[id].name, /reference estimate/);
-  assert.equal(result.models[id].options.lmmReferenceCost, true);
-  assert.equal(result.models[id].options.lmmPricingBasis, basis);
-  assert.throws(() => admitCatalog(catalog(entry), provider, issuer, 'group:b3RoZXI', new Set([upstream]), new Map([[upstream, cost]])));
- }
-});
-
-test('catalog refuses a zero-filled host cost instead of presenting dynamic billing as free', () => {
- const dynamic = {...item, native_cost:null, pricing:{...item.pricing, unit:'expression', price_basis:'tiered_expression'}};
- assert.equal(normalizeReferenceCost({input:0, output:0, cache_read:0, cache_write:0}), undefined);
- const result = admitCatalog(catalog(dynamic), provider, issuer, `group:${group}`, new Set([upstream]), new Map());
- assert.equal(Object.keys(result.models).length, 0);
+test('explicit user profiles remain usable without a bundled model table', () => {
+ const result=admit();
+ assert.equal(result.models[id]!.api.id,id);
+ assert.deepEqual(result.models[id]!.limit,profile.limit);
+ assert.equal(result.routes.get(id)?.upstream,upstream);
 });
 
 test('catalog diagnostics aggregate anonymous group filtering and suppress unchanged output', () => {
@@ -190,21 +137,11 @@ test('relay rejects untrusted destination, keys in URL, model, group and protoco
  for (const [url, model] of [[issuer+'/v1/chat/completions?key=secret',id], ['https://evil.example/v1/chat/completions',id], [issuer+'/v1/responses',id], [issuer+'/v1/chat/completions','other-model']]) await assert.rejects(prepareRelay(url, {method:'POST', body:JSON.stringify({model})}, issuer, admit().routes, 'lmm_at_fresh'));
 });
 
-test('server metadata registers unseen models and replaces prices and limits without local profiles', () => {
- const metadata = {context_window: 128000, max_input_tokens: 100000, max_output_tokens: 16000,
-   input_modalities:['text'], output_modalities:['text'], reasoning:true, tool_call:true, source:'server'};
- const row = {...item, metadata, pricing:{...item.pricing, price_basis:'effective_user_rates', group_multiplier:2, trust_multiplier:0.5}};
- const read = (models: unknown[]) => admitCatalog({...catalog(), models}, {...provider, models:{}}, issuer, `group:${group}`, new Set());
- const first = read([row]);
- assert.equal(first.models[id]!.limit.context, 100000);
- assert.equal(first.models[id]!.cost.input, 1);
- assert.equal(first.models[id]!.options.lmmUpstreamModel, upstream);
- assert.equal(first.models[id]!.capabilities.toolcall, true);
- const next = read([{...row, metadata:{...metadata,context_window:64000},native_cost:{...item.native_cost,input:3}}]);
- assert.equal(next.models[id]!.limit.context, 64000);
- assert.equal(next.models[id]!.cost.input, 3);
- assert.equal(read([]).routes.size, 0);
- assert.equal(read([{...row, metadata:{...metadata,context_window:null,max_input_tokens:null}}]).routes.size, 0);
- assert.equal(read([{...row, native_cost:null}]).routes.size, 0);
- assert.throws(() => read([{...row,metadata:{...metadata,max_output_tokens:-1}}]));
+
+test('explicit embedding types are not treated as chat merely because they output text', () => {
+ const data=new ModelsDevCatalog({vendor:{id:'vendor',models:{embedding:{id:'embedding',name:'Embedding',type:'embedding',limit:{context:8000,output:1},modalities:{input:['text'],output:['text']},tool_call:false,reasoning:false}}}});
+ const entry=route('embedding');
+ const result=admitCatalog(catalog(entry),{...provider,models:{}},issuer,`group:${group}`,data);
+ assert.equal(result.routes.size,0);
+ assert.equal(result.diagnostics.groups[0]!.filtered[0]!.reason,'unsupported_modality');
 });

@@ -1,13 +1,21 @@
 # Dynamic OAuth model catalog
 
-The client reads `GET /api/oauth2/catalog` with its own OAuth grant. Schema version 1 now supports additive `models[].metadata`: `context_window`, `max_input_tokens`, `max_output_tokens`, `input_modalities`, `output_modalities`, `reasoning`, `tool_call`, and `source`. Unknown fields are ignored; unknown values remain null.
+The LMM account catalog determines model availability, exact upstream IDs, authorized groups, supported protocols and account pricing. Public metadata does not grant access or remove account routes.
 
-When metadata is present it takes precedence over bundled model catalogs. New IDs do not need a plugin release. A missing server capability or price never falls back to a bundled guess. Old servers that omit metadata entirely retain the previous compatibility path; upgrade the server to make metadata authoritative.
+## Runtime metadata
 
-`upstream_model` is the original request ID. The canonical catalog `id` binds it to the authorized group; requests retain that binding. `pricing` specifies currency, unit, input/output/cache/request rates and group/trust multipliers. Effective rates already include the multipliers: clients do not multiply again. Unknown is not free; final settlement remains server-authoritative.
+All supported plugin hosts use the same dependency-free implementation maintained in `lmm-api-source/scripts/shared/models-dev.ts`. Runtime copies are checked by `node scripts/sync-provider-metadata.mjs --check`.
 
-A host context budget uses the smaller of the declared total context and input maximum. If only the input maximum is known it is used as a conservative budget; output is never added to invent total context. Current dynamic adapters expose text transport and explicitly advertised tools where supported; a reasoning boolean alone does not establish vendor-specific thinking controls or image transport.
+The public endpoint is <https://models.dev/api.json?type=all>. It includes specialized model types that the default endpoint may omit. The plugin caches validated metadata for 24 hours, revalidates with ETag, writes atomically and retains valid stale data during network failures. Concurrent callers share the download. No OAuth token, API key, Cookie or account model list is sent to models.dev.
 
-Refreshing the catalog performs no paid model invocation. Discovery failures remain errors, not successful empty directories. Empty successful catalogs remove models. These changes are source updates, not a package publication or production deployment.
+`LMM_MODELS_DEV_CACHE` selects the cache file. `LMM_MODELS_DEV_TTL_MS` selects its lifetime. Without overrides, the cache is `lmm/models-dev-v1.json` under the platform cache directory.
 
-OpenCode 1, OpenCode 2 and Magpie share catalog admission. Host discovery/configuration or provider reload fetches current metadata. Models need known limits, text input/output and complete `native_cost`; incomplete routes are counted in catalog diagnostics instead of being shown as free. Structured `lmmMetadata`, `lmmPricing` and `lmmUpstreamModel` options retain server details in the legacy/Magpie model object. OpenCode 2 exposes the limits and costs supported by its host schema.
+## Matching and precedence
+
+Matching tolerates case, punctuation, provider prefixes, token order, dated aliases and minor spelling differences. Numeric model versions and sizes remain distinct. Ambiguous matches remain unknown. Matching only selects reference metadata: the exact authorized upstream model and billing group are always retained on the wire.
+
+Server fields take precedence individually. Missing server fields may be completed from models.dev or explicit local configuration. Models without reference metadata remain selectable with conservative generic limits and visible unknown metadata. Unsupported wire protocols and explicitly non-chat types/modalities remain read-only; they are counted separately in catalog diagnostics.
+
+Account prices take priority. A reference estimate never replaces a known account rate. Numeric fields required by the host may contain placeholders when estimates are absent, accompanied by a visible incomplete-estimate label and `lmmUnknownCostFields`. Actual billing remains on the LMM server.
+
+Catalog responses permit up to 32 MiB, aligned with the bounded 20,000-route parser. Small authentication responses retain their stricter limits.

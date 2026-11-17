@@ -5,11 +5,9 @@ import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { admitCatalog, logCatalogDiagnostics, prepareRelay, type Route } from './catalog.ts';
 import { LmmHttp } from './http.ts';
-import { builtinProfiles } from './metadata.ts';
-import { deprecatedProfiles } from './model-status.ts';
+import { loadModelsDev } from './models-dev-cache.ts';
 import { OAuthSession, unpack } from './oauth.ts';
 import { LmmError, nonnegative, requireValue } from './protocol.ts';
-import { referenceCosts } from './reference-costs.ts';
 import { RefreshJournal } from './refresh-journal.ts';
 
 type Context = Pick<Plugin.Context, 'options' | 'event'> & {
@@ -38,35 +36,6 @@ function fingerprint(value: Credential.OAuth): string {
   return createHash('sha256').update(JSON.stringify([value.access, value.refresh, value.expires])).digest('hex');
 }
 
-function profiles(issuer: string): { provider: LegacyProvider; allowed: Set<string> } {
-  const provider: LegacyProvider = { id: PROVIDER, name: 'LMM', source: 'config', env: [], options: {}, models: {} };
-  const allowed = new Set<string>();
-  for (const [id, profile] of Object.entries(builtinProfiles)) {
-    if (deprecatedProfiles.has(id) || profile.status === 'deprecated' || !profile.limit ||
-      !Number.isSafeInteger(profile.limit.context) || profile.limit.context <= 0 ||
-      !Number.isSafeInteger(profile.limit.output) || profile.limit.output <= 0 ||
-      typeof profile.tool_call !== 'boolean' || typeof profile.reasoning !== 'boolean' ||
-      typeof profile.attachment !== 'boolean' || typeof profile.temperature !== 'boolean' ||
-      typeof profile.options?.lmmApi !== 'string') continue;
-    const input = profile.modalities?.input ?? ['text'];
-    const output = profile.modalities?.output ?? ['text'];
-    provider.models[id] = {
-      id, providerID: PROVIDER, name: profile.name ?? id, status: 'active', headers: {},
-      api: { id, url: `${issuer}/v1`, npm: '@ai-sdk/openai-compatible' },
-      cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
-      options: profile.options, limit: { context: profile.limit.context, output: profile.limit.output },
-      capabilities: {
-        toolcall: profile.tool_call, reasoning: profile.reasoning, attachment: profile.attachment,
-        temperature: profile.temperature,
-        input: { text: input.includes('text'), image: input.includes('image'), audio: input.includes('audio'), video: input.includes('video'), pdf: input.includes('pdf') },
-        output: { text: output.includes('text'), image: output.includes('image'), audio: output.includes('audio'), video: output.includes('video'), pdf: output.includes('pdf') },
-      },
-    };
-    allowed.add(id);
-  }
-  return { provider, allowed };
-}
-
 function nativeModel(value: LegacyModel): Model.Info {
   const packageName = nativePackages[value.api.npm];
   requireValue(packageName, 'LMM catalog selected an unsupported model protocol.');
@@ -92,8 +61,7 @@ export async function setupLmmV2(context: Context): Promise<Plugin.Cleanup> {
   const stateHome = process.env.XDG_STATE_HOME;
   const state = stateHome && isAbsolute(stateHome) ? stateHome : join(homedir(), '.local', 'state');
   const oauth = new OAuthSession(http, new RefreshJournal(join(state, 'opencode-lmm-auth', 'refresh')));
-  const configured = profiles(http.issuer);
-  const costs = new Map(Object.entries(referenceCosts));
+  const provider: LegacyProvider = {id: PROVIDER, name: 'LMM', source: 'config', env: [], options: {}, models: {}};
   const registrations: Registration[] = [];
   const controller = new AbortController();
   let snapshot: Snapshot | undefined;
@@ -122,8 +90,8 @@ export async function setupLmmV2(context: Context): Promise<Plugin.Cleanup> {
       } else {
         const current = await credential(connection);
         if (!force && connectionKey(snapshot?.connection) === connectionKey(connection) && snapshot?.fingerprint === fingerprint(current)) return;
-        const catalog = await http.bearer('/api/oauth2/catalog', current.access, controller.signal);
-        const admitted = admitCatalog(catalog, configured.provider, http.issuer, unpack(current, http.issuer).scope, configured.allowed, costs);
+        const [catalog, metadata] = await Promise.all([http.bearer('/api/oauth2/catalog', current.access, controller.signal), loadModelsDev()]);
+        const admitted = admitCatalog(catalog, provider, http.issuer, unpack(current, http.issuer).scope, metadata);
         lastCatalogDiagnosticFingerprint = logCatalogDiagnostics(admitted.diagnostics, console, lastCatalogDiagnosticFingerprint);
         await requireCurrent(connection);
         if (controller.signal.aborted) return;

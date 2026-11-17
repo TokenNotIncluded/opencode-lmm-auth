@@ -20,10 +20,11 @@ const context = {client:{}, magpie:{option:()=>undefined, options:()=>({})}} as 
 const json = (value: unknown) => new Response(JSON.stringify(value), {headers:{'content-type':'application/json'}});
 const item = (name:string) => ({id:`lmm:${group}:${Buffer.from(name).toString('base64url')}`,upstream_model:name,group_id:group,group:'default',name,apis:['openai-completions'],pricing:{currency:'USD',unit:'million_tokens',price_basis:'configured_base_rates'},native_cost:{input:1,output:2,cacheRead:0.1,cacheWrite:0.2}});
 
-test('config allowlist gates authenticated loader and actual transport; no request before credential validation', async () => {
+test('authorized catalog gates transport without a model allowlist; credentials remain required', async () => {
  const originalFetch = globalThis.fetch;
  let calls = 0;
  globalThis.fetch = async (input) => {
+  if (String(input).startsWith('https://models.dev/')) return json({});
   calls++;
   if (String(input) === issuer+'/api/oauth2/catalog') return json({schema_version:1,resource:issuer+'/api/oauth2',models:[item(upstream),item('unverified-model')]});
   assert.ok(input instanceof Request);
@@ -40,7 +41,7 @@ test('config allowlist gates authenticated loader and actual transport; no reque
   const auth = parseToken({token_type:'Bearer',access_token:'lmm_at_fixture',refresh_token:'lmm_rt_fixture',expires_in:3600,scope:`catalog:read balance:read usage:read models:invoke group:${group}`},issuer,Date.now());
   const provider = makeProvider();
   const transport = await hooks.auth!.loader!(async () => auth,provider);
-  assert.deepEqual(Object.keys(provider.models),[id]);
+  assert.deepEqual(Object.keys(provider.models),[id,idFor('unverified-model')]);
   const stream = await transport.fetch(issuer+'/v1/chat/completions',{method:'POST',body:JSON.stringify({model:id,stream:true})});
   assert.equal(await stream.text(),'stream fixture');
   assert.equal(calls,2);
@@ -65,7 +66,7 @@ test('Magpie provider hook lists the signed-in account catalog before loader run
   await hooks.config!(config);
   const auth = parseToken({token_type:'Bearer',access_token:'lmm_at_fixture',refresh_token:'lmm_rt_fixture',expires_in:3600,scope:`catalog:read balance:read usage:read models:invoke group:${group}`},issuer,Date.now());
   const listed = await (hooks as any).provider.models(makeProvider(),{auth});
-  assert.deepEqual(Object.keys(listed),[id]);
+  assert.deepEqual(Object.keys(listed),[id,idFor('unverified-model')]);
   assert.equal(listed[id].provider.npm,'@ai-sdk/openai-compatible');
   assert.equal(listed[id].limit.context,8000);
   assert.equal(catalogCalls,1);
@@ -88,15 +89,15 @@ test('Magpie provider hook exposes dynamic billing when the host supplies a refe
   hostProvider.models[upstream].cost = {input:3,output:4,cache:{read:0.5,write:0.75}};
   const listed = await (hooks as any).provider.models(hostProvider,{auth});
   assert.equal(Object.keys(listed).length, 1);
-  assert.match(listed[id].name, /LMM variable billing/);
+  assert.match(listed[id].name, /reference estimate.*server billed/);
   assert.equal(listed[id].cost.input, 3);
   assert.equal(listed[id].options.lmmReferenceCost, true);
  } finally { globalThis.fetch = originalFetch; }
 });
 
-test('Magpie provider hook uses the bundled exact vendor reference snapshot for dynamic billing', async () => {
+test('Magpie provider hook retains dynamic billing models when public metadata is unavailable', async () => {
  const originalFetch = globalThis.fetch;
- const dynamic = {...item('gpt-5.4'), native_cost:null, pricing:{...item('gpt-5.4').pricing, unit:'expression', price_basis:'tiered_expression'}};
+ const dynamic = {...item('future-runtime-unlisted-9999'), native_cost:null, pricing:{...item('future-runtime-unlisted-9999').pricing, unit:'expression', price_basis:'tiered_expression'}};
  globalThis.fetch = async (input) => {
   if (String(input) === issuer+'/api/oauth2/catalog') return json({schema_version:1,resource:issuer+'/api/oauth2',models:[dynamic]});
   throw new Error('unexpected provider hook request');
@@ -108,12 +109,13 @@ test('Magpie provider hook uses the bundled exact vendor reference snapshot for 
   const auth = parseToken({token_type:'Bearer',access_token:'lmm_at_fixture',refresh_token:'lmm_rt_fixture',expires_in:3600,scope:`catalog:read balance:read usage:read models:invoke group:${group}`},issuer,Date.now());
   const listed = await (hooks as any).provider.models(makeProvider(),{auth});
   assert.equal(Object.keys(listed).length, 1);
-  assert.match(listed[idFor('gpt-5.4')].name, /LMM variable billing/);
-  assert.equal(listed[idFor('gpt-5.4')].options.lmmReferenceCost, true);
+  assert.match(listed[idFor('future-runtime-unlisted-9999')].name, /cost estimate incomplete.*server billed/);
+  assert.equal(listed[idFor('future-runtime-unlisted-9999')].options.lmmReferenceCost, false);
+  assert.deepEqual(listed[idFor('future-runtime-unlisted-9999')].options.lmmUnknownCostFields, ['input','output','cache_read','cache_write']);
  } finally { globalThis.fetch = originalFetch; }
 });
 
-test('Magpie provider hook excludes exact models.dev deprecated profiles', async () => {
+test('reference retirement does not override an account that still offers a model', async () => {
  const originalFetch = globalThis.fetch;
  const deprecated = {...item('gpt-4'), native_cost:null, pricing:{...item('gpt-4').pricing, unit:'expression', price_basis:'tiered_expression'}};
  globalThis.fetch = async (input) => {
@@ -126,7 +128,7 @@ test('Magpie provider hook excludes exact models.dev deprecated profiles', async
   await hooks.config!(config);
   const auth = parseToken({token_type:'Bearer',access_token:'lmm_at_fixture',refresh_token:'lmm_rt_fixture',expires_in:3600,scope:`catalog:read balance:read usage:read models:invoke group:${group}`},issuer,Date.now());
   const listed = await (hooks as any).provider.models(makeProvider(),{auth});
-  assert.deepEqual(listed, {});
+  assert.deepEqual(Object.keys(listed), [idFor('gpt-4')]);
  } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -170,7 +172,7 @@ test('config publishes only authenticated synthetic catalog models with per-mode
   const config:Config = {provider:{lmm:{models:{[upstream]:{limit:{context:8000,output:2000},tool_call:true,reasoning:false,attachment:false,temperature:true,modalities:{input:['text','image','pdf'],output:['text']},options:{lmmApi:'openai-responses'}}}}}};
   await hooks.config!(config);
   const models = config.provider!.lmm.models!;
-  assert.deepEqual(Object.keys(models),[id]);
+  assert.deepEqual(Object.keys(models),[id,idFor('unverified-model')]);
   assert.equal(models[id].provider?.npm,'@ai-sdk/openai');
   assert.equal(models[id].id,id);
   assert.equal(models[id].cost?.input,1);

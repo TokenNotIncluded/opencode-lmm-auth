@@ -7,9 +7,7 @@ import { OAuthSession, unpack } from './oauth.js';
 import { RefreshJournal } from './refresh-journal.js';
 import { admitCatalog, logCatalogDiagnostics, normalizeReferenceCost, prepareRelay } from './catalog.js';
 import { LmmError, requireValue } from './protocol.js';
-import { builtinProfiles } from './metadata.js';
-import { referenceCosts } from './reference-costs.js';
-import { deprecatedProfiles } from './model-status.js';
+import { loadModelsDev } from './models-dev-cache.js';
 // Magpie 2a3d9f5a supplies this host-owned interface in PluginInput. Neither
 // a provider.models invocation nor user plugin options establish account scope.
 const legacyRefusal = 'LMM blocks inference on this OpenCode host because it cannot disable automatic paid request retries. Use the supported OpenCode V2 integration or Magpie. OAuth login remains available.';
@@ -21,10 +19,8 @@ const LmmOAuthPlugin = async (input, options) => {
     const stateHome = process.env.XDG_STATE_HOME;
     const stateDirectory = stateHome && isAbsolute(stateHome) ? stateHome : join(homedir(), '.local', 'state');
     const oauth = new OAuthSession(http, new RefreshJournal(join(stateDirectory, 'opencode-lmm-auth', 'refresh')));
-    const profiles = new Set();
     let profileModels = {};
-    const bundledReferenceCosts = new Map(Object.entries(referenceCosts));
-    let profileReferenceCosts = new Map(bundledReferenceCosts);
+    let profileReferenceCosts = new Map();
     const readHostAuth = async () => {
         const inline = process.env.OPENCODE_AUTH_CONTENT;
         if (inline !== undefined) {
@@ -70,8 +66,8 @@ const LmmOAuthPlugin = async (input, options) => {
     let lastCatalogDiagnosticFingerprint;
     const loadCatalog = async (auth, providerModels, referenceCosts = profileReferenceCosts) => {
         const envelope = unpack(auth, http.issuer);
-        const catalog = await http.bearer('/api/oauth2/catalog', auth.access);
-        const admitted = admitCatalog(catalog, { models: providerModels }, http.issuer, envelope.scope, profiles, referenceCosts);
+        const [catalog, metadata] = await Promise.all([http.bearer('/api/oauth2/catalog', auth.access), loadModelsDev()]);
+        const admitted = admitCatalog(catalog, { models: providerModels }, http.issuer, envelope.scope, metadata, referenceCosts);
         lastCatalogDiagnosticFingerprint = logCatalogDiagnostics(admitted.diagnostics, console, lastCatalogDiagnosticFingerprint);
         return admitted;
     };
@@ -145,15 +141,11 @@ const LmmOAuthPlugin = async (input, options) => {
             config.provider ??= {};
             config.provider.lmm ??= { name: 'LMM', npm: '@ai-sdk/openai-compatible', models: {} };
             const provider = config.provider.lmm;
-            provider.models = { ...structuredClone(builtinProfiles), ...provider.models };
+            provider.models ??= {};
             provider.options = { ...provider.options, baseURL: `${http.issuer}/v1` };
-            profiles.clear();
-            profileReferenceCosts = new Map(bundledReferenceCosts);
+            profileReferenceCosts = new Map();
             for (const [id, profile] of Object.entries(provider.models ?? {})) {
-                if (deprecatedProfiles.has(id) || profile.status === 'deprecated')
-                    continue;
                 if (profile.limit && Number.isSafeInteger(profile.limit.context) && profile.limit.context > 0 && Number.isSafeInteger(profile.limit.output) && profile.limit.output > 0 && typeof profile.tool_call === 'boolean' && typeof profile.reasoning === 'boolean' && typeof profile.attachment === 'boolean' && typeof profile.temperature === 'boolean' && typeof profile.options?.lmmApi === 'string') {
-                    profiles.add(id);
                     const cost = normalizeReferenceCost(profile.cost);
                     if (cost)
                         profileReferenceCosts.set(id, cost);
@@ -196,8 +188,6 @@ const LmmOAuthPlugin = async (input, options) => {
                     const fresh = freshForModels(auth);
                     const hostReferenceCosts = new Map(profileReferenceCosts);
                     for (const [id, model] of Object.entries(provider.models ?? {})) {
-                        if (!profiles.has(id))
-                            continue;
                         const cost = normalizeReferenceCost(model.cost);
                         if (cost)
                             hostReferenceCosts.set(id, cost);

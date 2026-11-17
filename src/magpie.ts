@@ -5,8 +5,7 @@ import { listenCallback } from './callback.ts';
 import { admitCatalog, prepareRelay } from './catalog.ts';
 import { LmmHttp } from './http.ts';
 import { MagpieJournal } from './magpie-journal.ts';
-import { builtinProfiles } from './metadata.ts';
-import { referenceCosts } from './reference-costs.ts';
+import { loadModelsDev } from './models-dev-cache.ts';
 import { accessToken, APPLICATION_SCOPES, parseScope, requireValue, text } from './protocol.ts';
 
 const CLIENT = 'lmm-magpie';
@@ -62,11 +61,10 @@ const MagpieLmmPlugin = async (input: any, options?: { issuer?: string }) => {
     await status(auth);
     return auth;
   };
-  const profileModels = Object.fromEntries(Object.entries(builtinProfiles).map(([id, p]) => [id, {
-    id, providerID: PROVIDER, name: p.name ?? id, status: 'active', headers: {}, api: {id, url: `${http.issuer}/v1`, npm: '@ai-sdk/openai-compatible'}, cost: {input: 0, output: 0, cache: {read: 0, write: 0}}, options: p.options ?? {}, limit: p.limit,
-    capabilities: {toolcall: p.tool_call, reasoning: p.reasoning, attachment: p.attachment, temperature: p.temperature, input: Object.fromEntries(['text', 'audio', 'image', 'video', 'pdf'].map(k => [k, p.modalities?.input?.includes(k as 'text') ?? false])), output: Object.fromEntries(['text', 'audio', 'image', 'video', 'pdf'].map(k => [k, p.modalities?.output?.includes(k as 'text') ?? false]))},
-  }]));
-  const catalog = async (auth: Auth) => admitCatalog(await http.bearer('/api/oauth2/catalog', auth.access), {models: profileModels} as any, http.issuer, unpack(auth, http).scope, new Set(Object.keys(profileModels)), new Map(Object.entries(referenceCosts)));
+  const catalog = async (auth: Auth) => {
+    const [value, metadata] = await Promise.all([http.bearer('/api/oauth2/catalog', auth.access), loadModelsDev()]);
+    return admitCatalog(value, {models: {}} as any, http.issuer, unpack(auth, http).scope, metadata);
+  };
   return {
     config: async (config: any) => {
       config.provider ??= {};
