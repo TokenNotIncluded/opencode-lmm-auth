@@ -21,10 +21,30 @@ export async function windowsJournal(directory: string, name: string, action: 'p
   const unavailable = () => new LmmError('invalid_response', 'Magpie refresh storage could not be verified on Windows.');
   return new Promise<Result>((resolve, reject) => {
     let inputFailed = false;
+    const started = performance.now();
     const child = execFile(executable, ['-NoProfile', '-NonInteractive', '-Command', fixedProgram], {
       windowsHide: true, timeout: 5000, maxBuffer: 4096, encoding: 'utf8',
     }, (error, stdout) => {
       if (error || inputFailed) {
+        // Node exposes killed/signal/code, not a distinct timeout cause flag.
+        // Elapsed time is an observation; it never changes the original 5s budget.
+        const elapsed = Math.max(0, Math.floor(performance.now() - started));
+        const code = error?.code;
+        const signal = error?.signal;
+        try {
+          console.error('lmm_windows_journal_process_failure', JSON.stringify({
+            operation: action === 'pending' || action === 'begin' ? action : 'other',
+            code: typeof code === 'number' && Number.isSafeInteger(code) ? code
+              : typeof code === 'string' && ['ENOENT', 'EACCES', 'EPERM', 'EPIPE', 'ETIMEDOUT', 'ABORT_ERR', 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'].includes(code) ? code
+              : code == null ? null : 'other',
+            signal: signal == null ? null : ['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGABRT'].includes(signal) ? signal : 'other',
+            killed: error?.killed === true,
+            input_failed: inputFailed,
+            timeout_ms: 5000,
+            elapsed_ms: elapsed,
+            deadline_elapsed: elapsed >= 5000,
+          }));
+        } catch { /* Diagnostics never replace the original rejection. */ }
         let detail = '';
         try {
           const failure = JSON.parse(stdout);

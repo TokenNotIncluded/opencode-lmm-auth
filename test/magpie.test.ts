@@ -131,6 +131,8 @@ test('response loss and plugin restart recover the same rotation; usage reports 
     const first = await Plugin(host, {issuer});
     const old = auth();
     await assert.rejects(first.auth.refresh(old));
+    assert.equal(rotations.length, 1, 'lost-ACK recovery requires the fixture to receive exactly one refresh POST');
+    assert.equal(fail, false, 'lost-ACK recovery requires the fixture to throw after recording the upstream rotation');
     const pendingUsage = await first.auth.usage(async () => old);
     assert.deepEqual(pendingUsage.windows, []);
     const restarted = await Plugin(host, {issuer});
