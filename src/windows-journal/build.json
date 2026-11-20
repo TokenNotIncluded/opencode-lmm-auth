@@ -1,0 +1,123 @@
+{
+  "schema": "lmm-windows-journal-build.v1",
+  "platform": "win32",
+  "arch": "x64",
+  "built_at": "2026-11-20T15:41:17.058Z",
+  "sources": [
+    {
+      "path": "src/windows-journal/JournalStorage.cs",
+      "bytes": 12846,
+      "sha256": "a979a161b09da99f147e2c8f95ed27190457301a06a7e6e298b0c58e375cd204"
+    },
+    {
+      "path": "src/windows-journal/Program.cs",
+      "bytes": 7386,
+      "sha256": "ef5a825e45d5144b185a7c63f401f3347ef98cf84dd025e01621bc69e486a122"
+    }
+  ],
+  "compiler": {
+    "path": "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe",
+    "arguments": [
+      "/noconfig",
+      "/nostdlib+",
+      "/target:exe",
+      "/platform:anycpu",
+      "/optimize+",
+      "/debug-",
+      "/langversion:5",
+      "/main:LmmMagpieJournalProgram",
+      "/out:D:\\a\\lmm-api-source\\lmm-api-source\\opencode-product\\src\\windows-journal\\lmm-magpie-journal.exe",
+      "/reference:C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\mscorlib.dll",
+      "/reference:C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\System.dll",
+      "/reference:C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\System.Core.dll",
+      "/reference:C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\System.Runtime.Serialization.dll",
+      "/reference:C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\System.Xml.dll",
+      "D:\\a\\lmm-api-source\\lmm-api-source\\opencode-product\\src\\windows-journal\\JournalStorage.cs",
+      "D:\\a\\lmm-api-source\\lmm-api-source\\opencode-product\\src\\windows-journal\\Program.cs"
+    ],
+    "exit_code": 0,
+    "signal": null,
+    "elapsed_ms": 397,
+    "pid": 5328,
+    "process_exited": true,
+    "stdout_sha256": "f5db0a8f497c4a191b2efd8d1a3b13a749d30289650a71bdc1a911d3adbe36ef",
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "toolchain_before": [
+    {
+      "path": "csc.exe",
+      "bytes": 2569832,
+      "sha256": "46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00"
+    },
+    {
+      "path": "mscorlib.dll",
+      "bytes": 5445432,
+      "sha256": "11ac114c43ecf6996bef58ba3c99fba3693a4560a84eeadde54d193060dc626c"
+    },
+    {
+      "path": "System.dll",
+      "bytes": 3545264,
+      "sha256": "2b3c17c6208a0b4b6beb94e1a066f99ba06cdb2ea919479e99d47e8c6d96dc71"
+    },
+    {
+      "path": "System.Core.dll",
+      "bytes": 1551104,
+      "sha256": "8b898bed54ae8cc61f9c58cc3eb062724f8357d2bdda338b5d363654ecff333d"
+    },
+    {
+      "path": "System.Runtime.Serialization.dll",
+      "bytes": 1051392,
+      "sha256": "262dc04303fd554c85b7e911bf4749e714b3bc7619f261449da812ee6b23a653"
+    },
+    {
+      "path": "System.Xml.dll",
+      "bytes": 2629296,
+      "sha256": "08bb5145db0ec469eb1818ef386bf8f8ae74696f947300ad7299d1b7328314c4"
+    }
+  ],
+  "toolchain_after": [
+    {
+      "path": "csc.exe",
+      "bytes": 2569832,
+      "sha256": "46809206887326d2d24db1eff1f3064de972c3451abe766b49111450a5e08e00"
+    },
+    {
+      "path": "mscorlib.dll",
+      "bytes": 5445432,
+      "sha256": "11ac114c43ecf6996bef58ba3c99fba3693a4560a84eeadde54d193060dc626c"
+    },
+    {
+      "path": "System.dll",
+      "bytes": 3545264,
+      "sha256": "2b3c17c6208a0b4b6beb94e1a066f99ba06cdb2ea919479e99d47e8c6d96dc71"
+    },
+    {
+      "path": "System.Core.dll",
+      "bytes": 1551104,
+      "sha256": "8b898bed54ae8cc61f9c58cc3eb062724f8357d2bdda338b5d363654ecff333d"
+    },
+    {
+      "path": "System.Runtime.Serialization.dll",
+      "bytes": 1051392,
+      "sha256": "262dc04303fd554c85b7e911bf4749e714b3bc7619f261449da812ee6b23a653"
+    },
+    {
+      "path": "System.Xml.dll",
+      "bytes": 2629296,
+      "sha256": "08bb5145db0ec469eb1818ef386bf8f8ae74696f947300ad7299d1b7328314c4"
+    }
+  ],
+  "executable": {
+    "path": "src/windows-journal/lmm-magpie-journal.exe",
+    "bytes": 14848,
+    "sha256": "cc9b0438f27ae56bcaa52374298c3c2ef4b86e36452efd9bca972c4a92c5581a"
+  },
+  "pe": {
+    "machine": "I386",
+    "format": "PE32",
+    "cli_flags": 1,
+    "il_only": true,
+    "required_32_bit": false,
+    "preferred_32_bit": false
+  }
+}

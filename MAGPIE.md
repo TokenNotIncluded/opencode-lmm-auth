@@ -33,10 +33,10 @@ account-level credential store and saves refreshed credentials to that account.
 
 On Windows, the journal uses the current Windows SID and a protected DACL that
 grants access only to that SID. It supports local fixed NTFS volumes and requires
-Windows PowerShell with the standard .NET/Win32 security APIs. A missing or blocked
-capability is an error; it does not fall back to POSIX mode bits or bypass a host
-policy. The packaged Windows security program is included with the complete
-package, alongside the compiled entry.
+the .NET Framework runtime. The package includes a precompiled helper using the
+standard Win32 security APIs, its source, and a build receipt that records the
+compiler, references, and executable digest. A missing or blocked helper is an
+error; it does not fall back to POSIX mode bits or bypass a host policy.
 
 New directories and records receive their private security descriptor when they
 are created. Existing unsafe ownership, ACLs, reparse points or records are refused

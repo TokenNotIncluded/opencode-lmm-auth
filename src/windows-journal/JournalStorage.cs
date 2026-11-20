@@ -1,10 +1,3 @@
-$ErrorActionPreference = 'Stop'
-[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-
-# This fixed program is package code. Paths and the credential-free record arrive
-# as JSON on stdin; they are never interpolated into PowerShell or C# source.
-$source = @'
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -233,27 +226,4 @@ public static class LmmMagpieJournalWindows {
             Marshal.FreeHGlobal(fileSecurity.Descriptor);
         }
     }
-}
-'@
-
-$stage = 'input'
-try {
-    $raw = [Console]::In.ReadToEnd()
-    if ($raw.Length -gt 16384) { throw 'Invalid input.' }
-    $inputData = ConvertFrom-Json -InputObject $raw
-    $stage = 'compile'
-    Add-Type -TypeDefinition $source
-    $stage = 'storage'
-    $result = [LmmMagpieJournalWindows]::Run(
-        [string]$inputData.directory, [string]$inputData.name,
-        [string]$inputData.action, $inputData.content)
-    $stage = 'result'
-    @{ exists = $result.Exists; content = $result.Content } | ConvertTo-Json -Compress
-} catch {
-    # Paths, SIDs, record contents and arbitrary native errors stay out of logs.
-    $nativeCode = 0
-    $failure = $_.Exception.GetBaseException()
-    if ($failure -is [System.ComponentModel.Win32Exception]) { $nativeCode = $failure.NativeErrorCode }
-    @{ error = 'unverified_windows_journal'; stage = $stage; nativeCode = $nativeCode } | ConvertTo-Json -Compress
-    exit 1
 }

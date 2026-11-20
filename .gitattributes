@@ -1,0 +1,3 @@
+# Preserve the exact source and receipt bytes of the Windows helper build.
+src/windows-journal/*.cs text eol=lf
+src/windows-journal/build.json text eol=lf

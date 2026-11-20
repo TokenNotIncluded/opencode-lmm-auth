@@ -1,25 +1,18 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { LmmError, requireValue } from './protocol.js';
-let program;
 /** Windows has SID/DACL security, not POSIX uid/mode bits. Never repair an existing ACL. */
 export async function windowsJournal(directory, name, action, content = null) {
     requireValue(process.platform === 'win32', 'Windows journal is unavailable.');
-    const systemRoot = process.env.SystemRoot;
-    requireValue(typeof systemRoot === 'string' && isAbsolute(systemRoot), 'Windows journal is unavailable.');
-    const executable = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    // src is part of the existing package file list. This URL resolves identically
-    // from the source module and from its compiled dist module.
-    program ??= readFile(new URL('../src/magpie-windows-journal.ps1', import.meta.url), 'utf8');
-    const fixedProgram = await program;
+    // The package contains the Windows-built helper; no runtime compiler or shell.
+    const executable = fileURLToPath(new URL('../src/windows-journal/lmm-magpie-journal.exe', import.meta.url));
     const payload = JSON.stringify({ directory, name, action, content });
     requireValue(Buffer.byteLength(payload) <= 16384, 'Windows journal input is invalid.');
     const unavailable = () => new LmmError('invalid_response', 'Magpie refresh storage could not be verified on Windows.');
     return new Promise((resolve, reject) => {
         let inputFailed = false;
         const started = performance.now();
-        const child = execFile(executable, ['-NoProfile', '-NonInteractive', '-Command', fixedProgram], {
+        const child = execFile(executable, [], {
             windowsHide: true, timeout: 5000, maxBuffer: 4096, encoding: 'utf8',
         }, (error, stdout) => {
             if (error || inputFailed) {
