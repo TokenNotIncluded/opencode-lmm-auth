@@ -24,12 +24,28 @@ Unavailable or inconsistent evidence produces an error and no usage window.
 
 Before each rotation, the plugin persists one random operation ID under
 `$XDG_STATE_HOME/lmm-magpie/refresh` (or `~/.local/state/lmm-magpie/refresh`).
-Directories are private, records are mode 0600 and symlinks are refused. Records
+On POSIX, directories are mode 0700 and records are mode 0600; symlinks are refused. Records
 contain no tokens. A lost response, host save failure or restart reuses that same
 operation for up to 600 seconds; it never generates a second operation for the
 same refresh token. Requests using an unresolved old token remain blocked.
 After the recovery window expires, reconnect the account. Magpie owns the
 account-level credential store and saves refreshed credentials to that account.
+
+On Windows, the journal uses the current Windows SID and a protected DACL that
+grants access only to that SID. It supports local fixed NTFS volumes and requires
+Windows PowerShell with the standard .NET/Win32 security APIs. A missing or blocked
+capability is an error; it does not fall back to POSIX mode bits or bypass a host
+policy. The packaged Windows security program is included with the complete
+package, alongside the compiled entry.
+
+New directories and records receive their private security descriptor when they
+are created. Existing unsafe ownership, ACLs, reparse points or records are refused
+without changing them. Inspect such a failure before choosing fresh state and
+signing in again; never discard old markers to retry the same refresh token.
+Windows uses exclusive creation, explicitly flushes file buffers and applies the
+same 600-second checks when reusing an existing record. It does not issue the POSIX
+directory-fsync operation. Actual host restart and sudden-power-loss durability
+remain separate validation boundaries, as do browser consent and full Core acceptance.
 
 The protocol target is Magpie `0.1.2512`, upstream commit
 `7da5b34aa497858bef9b6823a72d499ab375e055`. This entry implements the documented

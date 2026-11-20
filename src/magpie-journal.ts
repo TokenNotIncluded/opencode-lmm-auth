@@ -3,8 +3,15 @@ import { constants } from 'node:fs';
 import { lstat, mkdir, open } from 'node:fs/promises';
 import { dirname, isAbsolute, join, parse } from 'node:path';
 import { requireValue } from './protocol.ts';
+import { windowsJournal } from './magpie-windows-journal.ts';
 
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+
+function parseRecord(content: string): { rotation: string; started: number } {
+  const kept = JSON.parse(content);
+  requireValue(/^[a-f0-9]{64}$/.test(kept.rotation) && Number.isSafeInteger(kept.started) && kept.started > 0 && Date.now() >= kept.started && Date.now() - kept.started < 600_000, 'Magpie refresh recovery expired or is invalid. Reconnect this account.');
+  return kept;
+}
 
 /** Immutable operation records survive host restarts; no credential is stored here. */
 export class MagpieJournal {
@@ -28,12 +35,19 @@ export class MagpieJournal {
   private path(binding: string) { return join(this.directory, `${digest(binding)}.json`); }
 
   async pending(binding: string): Promise<boolean> {
+    if (process.platform === 'win32') return (await windowsJournal(this.directory, digest(binding) + '.json', 'pending')).exists;
     await this.prepare();
     try { await lstat(this.path(binding)); return true; }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw new Error('Magpie refresh state is unavailable.'); }
   }
 
   async begin(binding: string): Promise<{ rotation: string; started: number }> {
+    if (process.platform === 'win32') {
+      const record = { rotation: randomBytes(32).toString('hex'), started: Date.now() };
+      const result = await windowsJournal(this.directory, digest(binding) + '.json', 'begin', JSON.stringify(record));
+      requireValue(typeof result.content === 'string', 'Magpie refresh state is unavailable.');
+      return parseRecord(result.content);
+    }
     await this.prepare();
     const path = this.path(binding);
     const record = { rotation: randomBytes(32).toString('hex'), started: Date.now() };
@@ -52,8 +66,7 @@ export class MagpieJournal {
     try {
       const info = await reader.stat();
       requireValue(info.isFile() && info.size < 256 && (info.mode & 0o777) === 0o600 && info.uid === process.getuid?.(), 'Magpie refresh record is unsafe.');
-      const kept = JSON.parse(await reader.readFile('utf8'));
-      requireValue(/^[a-f0-9]{64}$/.test(kept.rotation) && Number.isSafeInteger(kept.started) && kept.started > 0 && Date.now() >= kept.started && Date.now() - kept.started < 600_000, 'Magpie refresh recovery expired or is invalid. Reconnect this account.');
+      const kept = parseRecord(await reader.readFile('utf8'));
       // Sync even when recovering a record another host created before a crash.
       await reader.sync();
       return kept;

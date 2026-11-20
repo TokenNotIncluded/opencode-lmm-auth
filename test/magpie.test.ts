@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdtemp, readFile, readdir, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { windowsTestACL } from './windows-journal-acl.ts';
 import Plugin, { _magpieTest } from '../src/magpie.ts';
 import { MagpieJournal } from '../src/magpie-journal.ts';
 import { LmmHttp } from '../src/http.ts';
@@ -78,10 +79,30 @@ test('rotation journal recovers the same operation without keeping secrets and r
     assert.deepEqual(await new MagpieJournal(path).begin('secret-binding'), operation);
     const files = await readdir(path);
     assert.equal((await readFile(join(path, files[0]!), 'utf8')).includes('secret-binding'), false);
-    await chmod(path, 0o755);
-    await assert.rejects(journal.begin('secret-binding'));
-    await chmod(path, 0o700);
-    await symlink(path, join(directory, 'link'));
+    if (process.platform === 'win32') {
+      const secure = await windowsTestACL(path);
+      assert.equal(secure.ownerMatches, true);
+      assert.equal(secure.protected, true);
+      assert.equal(secure.ruleCount, 1);
+      assert.equal(secure.onlyCurrent, true);
+      const unsafe = await windowsTestACL(path, 'grant_other');
+      await assert.rejects(journal.begin('secret-binding'));
+      assert.deepEqual(await windowsTestACL(path), unsafe, 'rejection must not repair an existing directory ACL');
+      await windowsTestACL(path, 'private');
+      const file = join(path, files[0]!);
+      const contents = await readFile(file, 'utf8');
+      const unsafeFile = await windowsTestACL(file, 'grant_other');
+      await assert.rejects(journal.begin('secret-binding'));
+      assert.deepEqual(await windowsTestACL(file), unsafeFile, 'rejection must not repair an existing record ACL');
+      assert.equal(await readFile(file, 'utf8'), contents);
+      await windowsTestACL(file, 'private');
+      assert.deepEqual(await journal.begin('secret-binding'), operation);
+    } else {
+      await chmod(path, 0o755);
+      await assert.rejects(journal.begin('secret-binding'));
+      await chmod(path, 0o700);
+    }
+    await symlink(path, join(directory, 'link'), process.platform === 'win32' ? 'junction' : undefined);
     await assert.rejects(new MagpieJournal(join(directory, 'link')).begin('x'));
   } finally { await rm(directory, {recursive: true, force: true}); }
 });
@@ -134,7 +155,9 @@ test('response loss and plugin restart recover the same rotation; usage reports 
 
 
 test('native Magpie provider hook preserves SDK capabilities, endpoint and cache prices', async () => {
-  const originalFetch = globalThis.fetch;
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'lmm-magpie-metadata-')));
+  const originalFetch = globalThis.fetch, state = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = directory;
   const upstream = 'future-native-metadata-model';
   const id = 'lmm:ZGVmYXVsdA:' + Buffer.from(upstream).toString('base64url');
   globalThis.fetch = async input => {
@@ -171,5 +194,9 @@ test('native Magpie provider hook preserves SDK capabilities, endpoint and cache
     assert.equal(model.capabilities.toolcall, true);
     assert.deepEqual(model.cost.cache, {read: 0.1, write: 0.2});
     assert.deepEqual(model.limit, {context: 64000, output: 8000});
-  } finally { globalThis.fetch = originalFetch; }
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (state === undefined) delete process.env.XDG_STATE_HOME; else process.env.XDG_STATE_HOME = state;
+    await rm(directory, {recursive: true, force: true});
+  }
 });
