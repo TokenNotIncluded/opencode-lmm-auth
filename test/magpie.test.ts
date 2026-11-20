@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, readFile, readdir, rm, symlink } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, readdir, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Plugin, { _magpieTest } from '../src/magpie.ts';
@@ -69,7 +69,7 @@ test('native Magpie login binds PKCE, issuer, installation and a one-use loopbac
 });
 
 test('rotation journal recovers the same operation without keeping secrets and rejects symlinks', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'lmm-magpie-journal-'));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'lmm-magpie-journal-')));
   try {
     const path = join(directory, 'private');
     const journal = new MagpieJournal(path);
@@ -87,7 +87,7 @@ test('rotation journal recovers the same operation without keeping secrets and r
 });
 
 test('response loss and plugin restart recover the same rotation; usage reports lifetime reservations', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'lmm-magpie-refresh-'));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'lmm-magpie-refresh-')));
   const originalFetch = globalThis.fetch, state = process.env.XDG_STATE_HOME;
   process.env.XDG_STATE_HOME = directory;
   const rotations: string[] = [];
