@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 
 type ACL = { ownerMatches: boolean; protected: boolean; ruleCount: number; onlyCurrent: boolean; fingerprint: string };
 const program = String.raw`$ErrorActionPreference = 'Stop'
@@ -45,14 +46,30 @@ try {
 // Only callers in these tests pass their newly created, owned temporary paths.
 export function windowsTestACL(path: string, action: 'read' | 'grant_other' | 'private' = 'read'): Promise<ACL> {
   if (process.platform !== 'win32' || !process.env.SystemRoot) throw Error('Windows test helper unavailable.');
+  const started = performance.now();
   return new Promise((resolve, reject) => {
+    const rejectProcess = (error: Error & { code?: string | number | null; signal?: string | null; killed?: boolean }) => {
+      const knownCodes = ['ENOENT', 'EACCES', 'EPERM', 'EPIPE', 'ETIMEDOUT', 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'];
+      const knownSignals = ['SIGTERM', 'SIGKILL', 'SIGINT', 'SIGABRT'];
+      reject(new Error(JSON.stringify({
+        event: 'windows_test_acl_process_failure',
+        action: action === 'read' || action === 'grant_other' || action === 'private' ? action : 'unknown',
+        elapsed_ms: Math.max(0, Math.round(performance.now() - started)),
+        pid: Number.isSafeInteger(child.pid) ? child.pid : null,
+        code: typeof error.code === 'number' && Number.isSafeInteger(error.code) ? error.code
+          : typeof error.code === 'string' && knownCodes.includes(error.code) ? error.code
+            : error.code == null ? null : 'OTHER',
+        signal: error.signal == null ? null : knownSignals.includes(error.signal) ? error.signal : 'OTHER',
+        killed: error.killed === true,
+      })));
+    };
     const child = execFile(join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
       ['-NoProfile', '-NonInteractive', '-Command', program],
       { windowsHide: true, timeout: 5000, maxBuffer: 4096, encoding: 'utf8' }, (error, stdout) => {
-        if (error) { reject(error); return; }
+        if (error) { rejectProcess(error); return; }
         try { resolve(JSON.parse(stdout) as ACL); } catch (failure) { reject(failure); }
       });
-    child.stdin!.on('error', reject);
+    child.stdin!.on('error', rejectProcess);
     child.stdin!.end(JSON.stringify({ path, action }));
   });
 }
