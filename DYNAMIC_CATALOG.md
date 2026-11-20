@@ -4,7 +4,15 @@ The LMM account catalog determines model availability, exact upstream IDs, autho
 
 ## Runtime metadata
 
-All supported plugin hosts use the same dependency-free implementation maintained in `lmm-api-source/scripts/shared/models-dev.ts`. Runtime copies are checked by `node scripts/sync-provider-metadata.mjs --check`.
+All supported plugin hosts use the same dependency-free implementation maintained in `lmm-api-source/scripts/shared/models-dev.ts`.
+
+The authoritative [synchronization script](https://github.com/TokenNotIncluded/lmm-api-source/blob/main/scripts/sync-provider-metadata.mjs) belongs to the parent `lmm-api-source` repository. From the root of a checkout of that repository, run:
+
+```sh
+node scripts/sync-provider-metadata.mjs --check
+```
+
+This check reads `scripts/shared/models-dev.ts` and verifies the runtime copies under `packages/`. For a standalone checkout of this plugin, use its own `package.json` checks: `npm test`, `npm run typecheck`, and `npm run test:host`.
 
 The public endpoint is <https://models.dev/api.json?type=all>. It includes specialized model types that the default endpoint may omit. The plugin caches validated metadata for 24 hours, revalidates with ETag, writes atomically and retains valid stale data during network failures. Concurrent callers share the download. No OAuth token, API key, Cookie or account model list is sent to models.dev.
 
