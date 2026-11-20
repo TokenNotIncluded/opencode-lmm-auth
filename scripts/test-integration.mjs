@@ -66,7 +66,8 @@ try {
     assert.equal(JSON.parse(await readFile(join(dependencies,'node_modules','@opencode-ai','plugin','package.json'),'utf8')).version,'1.18.34');
     for(const name of ['node_modules','package.json','package-lock.json'])await cp(join(dependencies,name),join(dir,'config','opencode',name),{recursive:true,dereference:true});
   } else {
-    execFileSync('npm',['install','--prefix',join(dir,'config','opencode'),'--ignore-scripts','--no-audit','--no-fund','@opencode-ai/plugin@1.18.34'],{env,stdio:'pipe',timeout:90000});
+    assert.ok(process.env.npm_execpath,'npm_execpath is required to install host dependencies');
+    execFileSync(process.execPath,[process.env.npm_execpath,'install','--prefix',join(dir,'config','opencode'),'--ignore-scripts','--no-audit','--no-fund','@opencode-ai/plugin@1.18.34'],{env,stdio:'pipe',timeout:90000});
   }
   const launch=async()=>{
     host=spawn(binary,['serve','--print-logs','--hostname','127.0.0.1','--port',String(port)],{cwd:dir,env,stdio:['ignore','pipe','pipe']});
