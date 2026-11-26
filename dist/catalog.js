@@ -66,13 +66,16 @@ export function admitCatalog(value, provider, issuer, scope, metadataCatalog = p
             reject(group, 'unsupported_modality');
             continue;
         }
-        const knownContext = server?.context_window ?? server?.max_input_tokens ?? profile?.limit?.context ?? (positiveLimit(reference?.limit.context) ? reference.limit.context : undefined);
-        const context = knownContext ?? 32768;
         const inputLimit = server?.max_input_tokens ?? (positiveLimit(reference?.limit.input) ? reference.limit.input : undefined);
-        const contextWindow = inputLimit ? Math.min(context, inputLimit) : context;
+        const maximumContext = server?.context_window ??
+            (positiveLimit(reference?.limit.context) ? reference.limit.context : inputLimit);
+        const configuredContext = profile?.limit?.context;
+        const defaultContext = maximumContext === undefined ? 32768 : Math.max(1, Math.floor(maximumContext / 2));
+        const contextWindow = Math.min(configuredContext ?? defaultContext, maximumContext ?? Infinity, inputLimit ?? Infinity);
         const knownOutput = server?.max_output_tokens ?? profile?.limit?.output ?? (positiveLimit(reference?.limit.output) ? reference.limit.output : undefined);
-        const outputLimit = knownOutput ?? 4096;
-        const estimatedLimits = knownContext === undefined || knownOutput === undefined;
+        const gatewayMaxOutputTokens = server?.gateway_max_output_tokens;
+        const outputLimit = Math.min(contextWindow, knownOutput ?? 4096, gatewayMaxOutputTokens ?? Infinity);
+        const estimatedLimits = (maximumContext === undefined && configuredContext === undefined) || knownOutput === undefined;
         requireValue(positiveLimit(contextWindow) && positiveLimit(outputLimit));
         const pricing = object(item.pricing);
         const native = item.native_cost === undefined || item.native_cost === null ? undefined : object(item.native_cost);
@@ -117,7 +120,7 @@ export function admitCatalog(value, provider, issuer, scope, metadataCatalog = p
         models[id] = {
             id, providerID: 'lmm', name: `${text(item.name)} [${text(item.group)}]${metadataLabel}${pricingLabel}`,
             status: 'active', api: { id, url: `${issuer}/v1`, npm: protocols[api].npm }, headers: {},
-            limit: { context: contextWindow, output: Math.min(contextWindow, outputLimit) },
+            limit: { context: contextWindow, output: outputLimit },
             capabilities: {
                 toolcall: server?.tool_call ?? profile?.capabilities.toolcall ?? reference?.tool_call ?? false,
                 reasoning: server?.reasoning ?? profile?.capabilities.reasoning ?? reference?.reasoning ?? false,
@@ -129,13 +132,15 @@ export function admitCatalog(value, provider, issuer, scope, metadataCatalog = p
             options: {
                 ...profile?.options, lmmApi: api, lmmUpstreamModel: upstream, lmmPricing: pricing,
                 ...(server ? { lmmMetadata: server } : {}),
+                ...(maximumContext === undefined ? {} : { lmmMaximumContextTokens: maximumContext }),
                 lmmMetadataSource: server?.source || reference?.source || (profile ? 'user configuration' : 'unknown'),
                 lmmMetadataStatus: unknownMetadata ? 'unknown' : 'available', lmmEstimatedLimits: estimatedLimits,
                 lmmPricingBasis: pricing.price_basis, lmmReferenceCost: usesReference,
                 lmmUnknownCostFields: unknownCosts,
             },
         };
-        routes.set(id, { upstream, group, path: protocols[api].path });
+        routes.set(id, { upstream, group, path: protocols[api].path,
+            ...(gatewayMaxOutputTokens === undefined ? {} : { gatewayMaxOutputTokens }) });
         count.admitted++;
     }
     const groups = [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, count], index) => ({
@@ -188,5 +193,11 @@ export async function prepareRelay(input, init, issuer, routes, access) {
     headers.set('x-lmm-group', route.group);
     headers.set('content-type', 'application/json');
     body.model = route.upstream;
+    if (route.gatewayMaxOutputTokens !== undefined) {
+        for (const key of ['max_output_tokens', 'max_completion_tokens', 'max_tokens']) {
+            if (positiveLimit(body[key]))
+                body[key] = Math.min(body[key], route.gatewayMaxOutputTokens);
+        }
+    }
     return new Request(request.url, { method: 'POST', headers, body: JSON.stringify(body), signal: request.signal, redirect: 'error', credentials: 'omit' });
 }

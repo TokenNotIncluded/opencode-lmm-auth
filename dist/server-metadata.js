@@ -30,7 +30,9 @@ export function parseMetadata(value) {
     };
     if (typeof row.source !== 'string')
         throw new Error('Invalid LMM metadata source.');
+    const gatewayOutput = limit('gateway_max_output_tokens');
     return { context_window: limit('context_window'), max_input_tokens: limit('max_input_tokens'),
+        ...(gatewayOutput === null ? {} : { gateway_max_output_tokens: gatewayOutput }),
         max_output_tokens: limit('max_output_tokens'), input_modalities: modalities('input_modalities'),
         output_modalities: modalities('output_modalities'), reasoning: flag('reasoning'), tool_call: flag('tool_call'), source: row.source };
 }

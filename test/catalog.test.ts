@@ -36,24 +36,25 @@ test('unknown models and missing prices remain available in every authorized gro
 });
 
 test('fuzzy reference enriches limits and capabilities while retaining the exact wire model', () => {
- const entry={...route('VENDOR/FUTURE MODEL 7.2'),native_cost:null};
+ const entry={...route('VENDOR/FUTURE MODLE 7.2'),native_cost:null};
  const result=admitCatalog(catalog(entry),{...provider,models:{}},issuer,`group:${group}`,metadata);
  const model=result.models[entry.id]!;
- assert.equal(model.limit.context,120000);
+ assert.equal(model.limit.context,65536);
+ assert.equal(model.options.lmmMaximumContextTokens,131072);
  assert.equal(model.limit.output,8192);
  assert.equal(model.capabilities.toolcall,true);
  assert.equal(model.capabilities.input.image,true);
  assert.equal(model.capabilities.reasoning,true);
  assert.equal(model.cost.input,3);
  assert.deepEqual(model.options.lmmUnknownCostFields,['cache_write']);
- assert.equal(result.routes.get(entry.id)?.upstream,'VENDOR/FUTURE MODEL 7.2');
+ assert.equal(result.routes.get(entry.id)?.upstream,'VENDOR/FUTURE MODLE 7.2');
 });
 
 test('server fields win and incomplete metadata is supplemented independently', () => {
  const server={context_window:64000,max_input_tokens:null,max_output_tokens:null,input_modalities:null,output_modalities:null,reasoning:false,tool_call:false,source:'server'};
  const entry={...route('future-model-7.2'),metadata:server};
  const result=admitCatalog(catalog(entry),{...provider,models:{}},issuer,`group:${group}`,metadata);
- assert.deepEqual(result.models[entry.id]!.limit,{context:64000,output:8192});
+ assert.deepEqual(result.models[entry.id]!.limit,{context:32000,output:8192});
  assert.equal(result.models[entry.id]!.capabilities.reasoning,false);
  assert.equal(result.models[entry.id]!.capabilities.toolcall,false);
  assert.equal(result.models[entry.id]!.cost.input,1);
@@ -98,6 +99,23 @@ test('explicit user profiles remain usable without a bundled model table', () =>
  assert.equal(result.models[id]!.api.id,id);
  assert.deepEqual(result.models[id]!.limit,profile.limit);
  assert.equal(result.routes.get(id)?.upstream,upstream);
+});
+
+test('an explicit context remains bounded by the model input limit', () => {
+ const result=admit({...item,metadata:{context_window:16000,max_input_tokens:7000,source:'server'}});
+ assert.deepEqual(result.models[id]!.limit,{context:7000,output:2000});
+ assert.equal(result.models[id]!.options.lmmMaximumContextTokens,16000);
+});
+
+test('an advertised gateway output ceiling applies to host limits and relay requests', async () => {
+ const result=admit({...item,metadata:{context_window:16000,max_output_tokens:4000,gateway_max_output_tokens:1000,source:'server'}});
+ assert.equal(result.models[id]!.limit.output,1000);
+ for (const field of ['max_output_tokens', 'max_completion_tokens', 'max_tokens']) {
+  const larger=await prepareRelay(issuer+'/v1/chat/completions',{method:'POST',body:JSON.stringify({model:id,[field]:2000})},issuer,result.routes,'lmm_at_fresh');
+  const smaller=await prepareRelay(issuer+'/v1/chat/completions',{method:'POST',body:JSON.stringify({model:id,[field]:10})},issuer,result.routes,'lmm_at_fresh');
+  assert.deepEqual(await larger.json(),{model:upstream,[field]:1000});
+  assert.deepEqual(await smaller.json(),{model:upstream,[field]:10});
+ }
 });
 
 test('catalog diagnostics aggregate anonymous group filtering and suppress unchanged output', () => {

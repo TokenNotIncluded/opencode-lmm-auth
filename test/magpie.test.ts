@@ -195,7 +195,8 @@ test('native Magpie provider hook preserves SDK capabilities, endpoint and cache
     assert.equal(model.capabilities.input.image, true);
     assert.equal(model.capabilities.toolcall, true);
     assert.deepEqual(model.cost.cache, {read: 0.1, write: 0.2});
-    assert.deepEqual(model.limit, {context: 64000, output: 8000});
+    assert.deepEqual(model.limit, {context: 32000, output: 8000});
+    assert.equal(model.options.lmmMaximumContextTokens, 64000);
   } finally {
     globalThis.fetch = originalFetch;
     if (state === undefined) delete process.env.XDG_STATE_HOME; else process.env.XDG_STATE_HOME = state;

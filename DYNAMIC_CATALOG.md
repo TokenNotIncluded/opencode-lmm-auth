@@ -24,6 +24,8 @@ Matching tolerates case, punctuation, provider prefixes, token order, dated alia
 
 Server fields take precedence individually. Missing server fields may be completed from models.dev or explicit local configuration. Models without reference metadata remain selectable with conservative generic limits and visible unknown metadata. Unsupported wire protocols and explicitly non-chat types/modalities remain read-only; they are counted separately in catalog diagnostics.
 
+OpenCode and Magpie default to half the known maximum context, rounded down and bounded by the model input limit. An explicit OpenCode context setting takes precedence within those limits. The model's full maximum remains available in `lmmMaximumContextTokens`. Catalogs that advertise a gateway output ceiling also constrain the output limit and outgoing request.
+
 Account prices take priority. A reference estimate never replaces a known account rate. Numeric fields required by the host may contain placeholders when estimates are absent, accompanied by a visible incomplete-estimate label and `lmmUnknownCostFields`. Actual billing remains on the LMM server.
 
 Catalog responses permit up to 32 MiB, aligned with the bounded 20,000-route parser. Small authentication responses retain their stricter limits.

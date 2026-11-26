@@ -348,6 +348,14 @@ try {
                 price_basis: "configured_base_rates",
               },
               native_cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+              metadata: {
+                context_window: 64000,
+                max_output_tokens: 8000,
+                gateway_max_output_tokens: 2000,
+                input_modalities: ["text"],
+                output_modalities: ["text"],
+                source: "fixture",
+              },
             })),
           });
         const i = paths.indexOf(req.url);
@@ -570,7 +578,10 @@ try {
   assert.equal((await listModels()).length, 0, "unconnected LMM must not advertise models");
   stage = "native OAuth PKCE and catalog";
   await signIn();
-  await waitModels(3);
+  for (const model of await waitModels(3)) {
+    assert.equal(model.limit.context, 32000);
+    assert.equal(model.limit.output, 2000);
+  }
   stage = "native refresh persistence";
   assert.equal(refreshCalls, 1, "a near-expiry native credential must rotate exactly once");
   await stopHost();
